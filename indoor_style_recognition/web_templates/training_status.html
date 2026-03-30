@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>训练状态</title>
+  {% if training_snapshot.training_status.status == 'running' %}
+  <meta http-equiv="refresh" content="5">
+  {% endif %}
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="page">
+    <nav class="topnav">
+      <a href="/">识别台</a>
+      <a href="/training-status" class="active">训练状态</a>
+    </nav>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Training Monitor</p>
+        <h1>训练状态页</h1>
+        <p class="lead">查看当前训练集规模、模型更新时间、反馈数量以及最近的纠错样本。</p>
+      </div>
+    </section>
+
+    {% if predictor_is_stale %}
+    <section class="notice error">
+      当前网页正在使用旧模型继续服务。{{ predictor_stale_reason }}
+    </section>
+    {% endif %}
+
+    <section class="grid status-grid">
+      <article class="card stat-card">
+        <h2>训练任务</h2>
+        <p class="stat-value">{{ training_snapshot.training_status.status }}</p>
+        <p>{{ training_snapshot.training_status.detail }}</p>
+        <p>更新时间：{{ training_snapshot.training_status.updated_at or '未记录' }}</p>
+        {% if training_snapshot.training_status.status == 'running' %}
+        <p>页面每 5 秒自动刷新一次。</p>
+        {% endif %}
+      </article>
+
+      <article class="card stat-card">
+        <h2>训练集规模</h2>
+        <p class="stat-value">{{ training_snapshot.processed_rows }}</p>
+        <p>当前已处理样本数</p>
+        <p>风格数：{{ training_snapshot.processed_styles }}</p>
+      </article>
+
+      <article class="card stat-card">
+        <h2>模型状态</h2>
+        <p class="stat-value">{{ '已生成' if training_snapshot.model_exists else '未生成' }}</p>
+        <p>最新模型时间：{{ training_snapshot.model_updated_at_text }}</p>
+      </article>
+
+      <article class="card stat-card">
+        <h2>反馈统计</h2>
+        <p class="stat-value">{{ training_snapshot.feedback_total }}</p>
+        <p>总反馈数</p>
+        <p>纠错数：{{ training_snapshot.feedback_wrong_total }}</p>
+      </article>
+    </section>
+
+    <section class="card">
+      <h2>最近错误样本池</h2>
+      {% if recent_wrong_feedback %}
+      <div class="gallery">
+        {% for row in recent_wrong_feedback %}
+        <article class="thumb-card">
+          {% if row.saved_url %}
+          <img src="{{ row.saved_url }}" alt="{{ row.chosen_style }}" class="thumb-image">
+          {% endif %}
+          <div class="thumb-body">
+            <strong>{{ row.chosen_style }}</strong>
+            <p>Top1: {{ row.pred_1_style }}</p>
+            <p>Top2: {{ row.pred_2_style }}</p>
+            <p>{{ row.timestamp }}</p>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p>还没有纠错样本。</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

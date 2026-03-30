@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: indoor-style-recognition
+    runtime: docker
+    rootDir: indoor_style_recognition
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: STYLE_EXCEL_PATH
+        value: /app/storage/室内设计风格.xlsx
+      - key: STYLE_TRAIN_IMAGE_ROOT
+        value: /app/storage/data/images/Interior_style_illustration
+      - key: STYLE_PROCESSED_DIR
+        value: /app/storage/data/processed
+      - key: STYLE_MODEL_DIR
+        value: /app/storage/models
+      - key: STYLE_CHECKPOINT_PATH
+        value: /app/storage/models/best_model.pth
+      - key: STYLE_DEVICE
+        value: cpu
+      - key: STYLE_NUM_WORKERS
+        value: "0"
+    disk:
+      name: storage
+      mountPath: /app/storage
+      sizeGB: 10

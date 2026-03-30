@@ -1,0 +1,21 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.idea/
+.vscode/
+.venv/
+venv/
+env/
+
+# Local uploads and caches
+indoor_style_recognition/data/processed/web_uploads/
+indoor_style_recognition/data/processed/training_status.json
+
+# OS / notebook noise
+.ipynb_checkpoints/
+
+# Optional large artifacts
+*.log

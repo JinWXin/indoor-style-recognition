@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>室内风格协作标注平台</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="page">
+    <nav class="topnav">
+      <a href="/">识别台</a>
+      <a href="/training-status">训练状态</a>
+    </nav>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">FastAPI Collaboration</p>
+        <h1>室内风格协作标注平台</h1>
+        <p class="lead">上传图片，查看 Top3，相互纠错，把反馈直接沉淀进训练图库。</p>
+      </div>
+      <form action="/refresh-model" method="post">
+        <button class="secondary" type="submit">重新加载模型</button>
+      </form>
+    </section>
+
+    {% if message %}
+    <section class="notice success">{{ message }}</section>
+    {% endif %}
+    {% if error %}
+    <section class="notice error">{{ error }}</section>
+    {% endif %}
+    {% if predictor_is_stale %}
+    <section class="notice error">
+      当前网页正在使用旧模型继续提供识别服务。原因：{{ predictor_stale_reason }}
+    </section>
+    {% endif %}
+
+    <section class="mobile-quick-actions">
+      <button type="button" class="quick-action primary" data-upload-trigger>
+        拍照识别
+      </button>
+      <button type="button" class="quick-action secondary" data-upload-trigger>
+        从相册选择
+      </button>
+    </section>
+
+    <section class="grid">
+      <div class="card" id="upload-card">
+        <h2>上传识别</h2>
+        <form action="/predict" method="post" enctype="multipart/form-data" class="stack">
+          <input id="image-file-input" type="file" name="image_file" accept="image/*" capture="environment" required>
+          <button type="submit">上传并识别</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>风格列表</h2>
+        <div class="pill-list">
+          {% for style in styles %}
+          <span class="pill">{{ style }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    {% if result %}
+    <section class="card">
+      <h2>识别结果</h2>
+      <div class="result-layout">
+        <div class="preview-panel">
+          <img src="{{ result.upload_url }}" alt="{{ result.upload_name }}" class="preview-image">
+          <p><strong>当前图片：</strong>{{ result.upload_name }}</p>
+          <p><strong>最终判断：</strong>{{ result.final_prediction.style }}（{{ '%.2f%%'|format(result.final_prediction.confidence * 100) }}）</p>
+        </div>
+
+        <div class="result-list">
+          {% for pred in result.predictions %}
+          <article class="result-item">
+            <div class="result-head">
+              <strong>{{ loop.index }}. {{ pred.style }}</strong>
+              <span>{{ '%.2f%%'|format(pred.confidence * 100) }}</span>
+            </div>
+            <p>{{ pred.summary }}</p>
+          </article>
+          {% endfor %}
+        </div>
+      </div>
+
+      <form action="/feedback" method="post" class="stack feedback-form">
+        <input type="hidden" name="upload_path" value="{{ result.upload_path }}">
+        <input type="hidden" name="predicted_style" value="{{ result.final_prediction.style }}">
+        {% for pred in result.predictions %}
+        <input type="hidden" name="pred_{{ loop.index }}_style" value="{{ pred.style }}">
+        <input type="hidden" name="pred_{{ loop.index }}_confidence" value="{{ pred.confidence }}">
+        {% endfor %}
+
+        <div class="inline">
+          <label><input type="radio" name="feedback_action" value="correct" checked> 预测正确</label>
+          <label><input type="radio" name="feedback_action" value="wrong"> 预测错误</label>
+        </div>
+
+        <label>
+          正确风格（如果判错）
+          <select name="chosen_style">
+            <option value="">请选择风格</option>
+            {% for style in styles %}
+            <option value="{{ style }}">{{ style }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>
+          或者新增一个风格名称
+          <input type="text" name="new_style_name" placeholder="例如：实验性自然主义">
+        </label>
+
+        <label>
+          <input type="checkbox" name="retrain_now" value="y">
+          提交反馈后启动后台快速微调
+        </label>
+
+        <button type="submit" class="desktop-submit">提交反馈</button>
+        <div class="sticky-submit-bar">
+          <button type="submit">提交反馈</button>
+        </div>
+      </form>
+    </section>
+    {% endif %}
+
+    <section class="card">
+      <div class="section-head">
+        <h2>最近错误样本池</h2>
+        <a href="/training-status" class="text-link">查看训练状态</a>
+      </div>
+      {% if recent_wrong_feedback %}
+      <div class="gallery">
+        {% for row in recent_wrong_feedback %}
+        <article class="thumb-card">
+          {% if row.saved_url %}
+          <img src="{{ row.saved_url }}" alt="{{ row.chosen_style }}" class="thumb-image">
+          {% endif %}
+          <div class="thumb-body">
+            <strong>{{ row.chosen_style }}</strong>
+            <p>Top1: {{ row.pred_1_style }}</p>
+            <p>{{ row.timestamp }}</p>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p>还没有纠错样本。</p>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2>最近反馈</h2>
+      {% if recent_feedback %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>最终归档</th>
+              <th>是否正确</th>
+              <th>Top1</th>
+              <th>Top2</th>
+              <th>Top3</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in recent_feedback %}
+            <tr>
+              <td>{{ row.timestamp }}</td>
+              <td>{{ row.chosen_style }}</td>
+              <td>{{ '正确' if row.is_correct == '1' else '纠错' }}</td>
+              <td>{{ row.pred_1_style }}</td>
+              <td>{{ row.pred_2_style }}</td>
+              <td>{{ row.pred_3_style }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p>还没有反馈记录。</p>
+      {% endif %}
+    </section>
+  </main>
+  <script>
+    (() => {
+      const uploadInput = document.getElementById('image-file-input');
+      const uploadCard = document.getElementById('upload-card');
+      document.querySelectorAll('[data-upload-trigger]').forEach((button) => {
+        button.addEventListener('click', () => {
+          if (uploadCard) {
+            uploadCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+          if (uploadInput) {
+            uploadInput.click();
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
