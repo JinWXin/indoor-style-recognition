@@ -32,14 +32,16 @@ TEMPLATES_DIR = BASE_DIR / 'web_templates'
 STATIC_DIR = BASE_DIR / 'web_static'
 UPLOAD_DIR = Path(PROCESSED_DIR) / 'web_uploads'
 TRAINING_STATUS_PATH = Path(PROCESSED_DIR) / 'training_status.json'
+DATASET_IMAGE_DIR = Path(TRAIN_IMAGE_ROOT)
 
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+DATASET_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title='室内风格协作标注平台')
 app.mount('/static', StaticFiles(directory=str(STATIC_DIR)), name='static')
 app.mount('/uploads', StaticFiles(directory=str(UPLOAD_DIR)), name='uploads')
-app.mount('/dataset-images', StaticFiles(directory=str(Path(TRAIN_IMAGE_ROOT))), name='dataset-images')
+app.mount('/dataset-images', StaticFiles(directory=str(DATASET_IMAGE_DIR)), name='dataset-images')
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 _predictor_cache = None

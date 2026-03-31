@@ -14,6 +14,16 @@ env/
 indoor_style_recognition/data/processed/web_uploads/
 indoor_style_recognition/data/processed/training_status.json
 
+# Large local data and model artifacts
+室内设计风格.xlsx
+data/images/
+indoor_style_recognition/data/images/
+data/processed/
+models/
+indoor_style_recognition/models/*.pth
+indoor_style_recognition/data/processed/
+text_images/
+
 # OS / notebook noise
 .ipynb_checkpoints/
 
