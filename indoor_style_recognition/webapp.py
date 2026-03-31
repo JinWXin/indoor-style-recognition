@@ -220,7 +220,11 @@ def build_context(**extra):
 
 @app.get('/', response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse('index.html', {'request': request, **build_context()})
+    return templates.TemplateResponse(
+        request=request,
+        name='index.html',
+        context=build_context(),
+    )
 
 
 @app.head('/')
@@ -236,13 +240,11 @@ async def predict(
     predictor = get_predictor_if_available()
     if predictor is None:
         return templates.TemplateResponse(
-            'index.html',
-            {
-                'request': request,
-                **build_context(
-                    error='当前云端模型尚未准备好，网站已经上线，但还缺少 processed 数据或模型文件。'
-                ),
-            }
+            request=request,
+            name='index.html',
+            context=build_context(
+                error='当前云端模型尚未准备好，网站已经上线，但还缺少 processed 数据或模型文件。'
+            ),
         )
     suffix = Path(image_file.filename or 'upload.jpg').suffix or '.jpg'
     upload_path = UPLOAD_DIR / f"upload_{Path(image_file.filename or 'image').stem}{suffix}"
@@ -256,14 +258,12 @@ async def predict(
     result['upload_url'] = upload_image_url(result['upload_path'])
 
     return templates.TemplateResponse(
-        'index.html',
-        {
-            'request': request,
-            **build_context(
-                result=result,
-                message='识别完成，请确认结果或提交正确风格。',
-            ),
-        }
+        request=request,
+        name='index.html',
+        context=build_context(
+            result=result,
+            message='识别完成，请确认结果或提交正确风格。',
+        ),
     )
 
 
@@ -286,20 +286,16 @@ async def feedback(
     predictor = get_predictor_if_available()
     if predictor is None:
         return templates.TemplateResponse(
-            'index.html',
-            {
-                'request': request,
-                **build_context(error='当前模型尚未准备好，暂时无法提交识别反馈。'),
-            }
+            request=request,
+            name='index.html',
+            context=build_context(error='当前模型尚未准备好，暂时无法提交识别反馈。'),
         )
     image_path = Path(upload_path)
     if not image_path.exists():
         return templates.TemplateResponse(
-            'index.html',
-            {
-                'request': request,
-                **build_context(error='上传的临时图片不存在，请重新上传。'),
-            }
+            request=request,
+            name='index.html',
+            context=build_context(error='上传的临时图片不存在，请重新上传。'),
         )
 
     predictions = [
@@ -312,11 +308,9 @@ async def feedback(
     final_style = predicted_style if is_correct else (new_style_name.strip() or chosen_style.strip())
     if not final_style:
         return templates.TemplateResponse(
-            'index.html',
-            {
-                'request': request,
-                **build_context(error='请选择正确风格，或者输入一个新的风格名称后再提交反馈。'),
-            }
+            request=request,
+            name='index.html',
+            context=build_context(error='请选择正确风格，或者输入一个新的风格名称后再提交反馈。'),
         )
 
     image = predictor.load_image(str(image_path))
@@ -348,11 +342,9 @@ async def feedback(
         image_path.unlink()
 
     return templates.TemplateResponse(
-        'index.html',
-        {
-            'request': request,
-            **build_context(message=message),
-        }
+        request=request,
+        name='index.html',
+        context=build_context(message=message),
     )
 
 
@@ -366,22 +358,18 @@ async def refresh_model(request: Request):
         message = ''
         error = f'模型重新加载失败：{exc}'
     return templates.TemplateResponse(
-        'index.html',
-        {
-            'request': request,
-            **build_context(message=message, error=error),
-        }
+        request=request,
+        name='index.html',
+        context=build_context(message=message, error=error),
     )
 
 
 @app.get('/training-status', response_class=HTMLResponse)
 async def training_status(request: Request):
     return templates.TemplateResponse(
-        'training_status.html',
-        {
-            'request': request,
-            **build_context(),
-        }
+        request=request,
+        name='training_status.html',
+        context=build_context(),
     )
 
 
