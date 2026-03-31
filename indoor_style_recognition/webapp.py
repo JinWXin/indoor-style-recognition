@@ -7,7 +7,7 @@ import sys
 import threading
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -223,6 +223,11 @@ async def index(request: Request):
     return templates.TemplateResponse('index.html', {'request': request, **build_context()})
 
 
+@app.head('/')
+async def index_head():
+    return Response(status_code=200)
+
+
 @app.post('/predict', response_class=HTMLResponse)
 async def predict(
     request: Request,
@@ -378,6 +383,11 @@ async def training_status(request: Request):
             **build_context(),
         }
     )
+
+
+@app.head('/training-status')
+async def training_status_head():
+    return Response(status_code=200)
 
 
 @app.get('/healthz')
