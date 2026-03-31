@@ -45,21 +45,35 @@ app.mount('/dataset-images', StaticFiles(directory=str(DATASET_IMAGE_DIR)), name
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 _predictor_cache = None
+_predictor_init_error = ''
 _training_thread = None
 _training_lock = threading.Lock()
 
 
 def get_predictor():
-    global _predictor_cache
+    global _predictor_cache, _predictor_init_error
     if _predictor_cache is None:
-        _predictor_cache = StylePredictor(validate_freshness=False)
+        try:
+            _predictor_cache = StylePredictor(validate_freshness=False)
+            _predictor_init_error = ''
+        except Exception as exc:
+            _predictor_init_error = str(exc)
+            raise
     return _predictor_cache
 
 
 def refresh_predictor():
-    global _predictor_cache
+    global _predictor_cache, _predictor_init_error
     _predictor_cache = StylePredictor(validate_freshness=False)
+    _predictor_init_error = ''
     return _predictor_cache
+
+
+def get_predictor_if_available():
+    try:
+        return get_predictor()
+    except Exception:
+        return None
 
 
 def dataset_image_url(path_value):
@@ -82,8 +96,8 @@ def upload_image_url(path_value):
 
 def list_available_styles():
     """合并当前模型风格与本地图库风格，供网页下拉选择。"""
-    predictor = get_predictor()
-    style_set = set(predictor.style_to_label.keys())
+    predictor = get_predictor_if_available()
+    style_set = set(predictor.style_to_label.keys()) if predictor is not None else set()
 
     image_root = Path(TRAIN_IMAGE_ROOT)
     if image_root.exists():
@@ -180,7 +194,7 @@ def build_training_snapshot():
 
 
 def build_context(**extra):
-    predictor = get_predictor()
+    predictor = get_predictor_if_available()
     recent_wrong_feedback = []
     for row in load_recent_wrong_feedback(limit=12):
         row = dict(row)
@@ -192,8 +206,10 @@ def build_context(**extra):
         'recent_feedback': load_recent_feedback(limit=15),
         'recent_wrong_feedback': recent_wrong_feedback,
         'training_snapshot': build_training_snapshot(),
-        'predictor_is_stale': predictor.is_stale,
-        'predictor_stale_reason': predictor.stale_reason,
+        'predictor_is_stale': predictor.is_stale if predictor is not None else False,
+        'predictor_stale_reason': predictor.stale_reason if predictor is not None else '',
+        'predictor_available': predictor is not None,
+        'predictor_error': _predictor_init_error,
         'message': '',
         'error': '',
         'result': None,
@@ -212,7 +228,17 @@ async def predict(
     request: Request,
     image_file: UploadFile = File(...),
 ):
-    predictor = get_predictor()
+    predictor = get_predictor_if_available()
+    if predictor is None:
+        return templates.TemplateResponse(
+            'index.html',
+            {
+                'request': request,
+                **build_context(
+                    error='当前云端模型尚未准备好，网站已经上线，但还缺少 processed 数据或模型文件。'
+                ),
+            }
+        )
     suffix = Path(image_file.filename or 'upload.jpg').suffix or '.jpg'
     upload_path = UPLOAD_DIR / f"upload_{Path(image_file.filename or 'image').stem}{suffix}"
     binary = await image_file.read()
@@ -252,7 +278,15 @@ async def feedback(
     new_style_name: str = Form(''),
     retrain_now: str = Form('n'),
 ):
-    predictor = get_predictor()
+    predictor = get_predictor_if_available()
+    if predictor is None:
+        return templates.TemplateResponse(
+            'index.html',
+            {
+                'request': request,
+                **build_context(error='当前模型尚未准备好，暂时无法提交识别反馈。'),
+            }
+        )
     image_path = Path(upload_path)
     if not image_path.exists():
         return templates.TemplateResponse(
@@ -319,12 +353,18 @@ async def feedback(
 
 @app.post('/refresh-model', response_class=HTMLResponse)
 async def refresh_model(request: Request):
-    refresh_predictor()
+    try:
+        refresh_predictor()
+        message = '模型已重新加载。'
+        error = ''
+    except Exception as exc:
+        message = ''
+        error = f'模型重新加载失败：{exc}'
     return templates.TemplateResponse(
         'index.html',
         {
             'request': request,
-            **build_context(message='模型已重新加载。'),
+            **build_context(message=message, error=error),
         }
     )
 
@@ -342,8 +382,10 @@ async def training_status(request: Request):
 
 @app.get('/healthz')
 async def healthz():
-    predictor = get_predictor()
+    predictor = get_predictor_if_available()
     return {
         'ok': True,
-        'num_styles': predictor.num_classes,
+        'predictor_ready': predictor is not None,
+        'num_styles': predictor.num_classes if predictor is not None else 0,
+        'predictor_error': _predictor_init_error,
     }

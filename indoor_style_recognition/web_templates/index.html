@@ -35,6 +35,12 @@
       当前网页正在使用旧模型继续提供识别服务。原因：{{ predictor_stale_reason }}
     </section>
     {% endif %}
+    {% if not predictor_available %}
+    <section class="notice error">
+      当前网页已经上线，但云端模型文件还没准备好，所以暂时不能识别图片。
+      {% if predictor_error %}详细原因：{{ predictor_error }}{% endif %}
+    </section>
+    {% endif %}
 
     <section class="mobile-quick-actions">
       <button type="button" class="quick-action primary" data-upload-trigger>
@@ -49,9 +55,12 @@
       <div class="card" id="upload-card">
         <h2>上传识别</h2>
         <form action="/predict" method="post" enctype="multipart/form-data" class="stack">
-          <input id="image-file-input" type="file" name="image_file" accept="image/*" capture="environment" required>
-          <button type="submit">上传并识别</button>
+          <input id="image-file-input" type="file" name="image_file" accept="image/*" capture="environment" required {% if not predictor_available %}disabled{% endif %}>
+          <button type="submit" {% if not predictor_available %}disabled{% endif %}>上传并识别</button>
         </form>
+        {% if not predictor_available %}
+        <p>等 Excel、processed 文件和模型上传到 Render 磁盘后，这里就会恢复可用。</p>
+        {% endif %}
       </div>
 
       <div class="card">
