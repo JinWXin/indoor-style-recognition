@@ -256,6 +256,16 @@ def _extract_zip_file(zip_path: Path, destination: Path):
         archive.extractall(destination)
 
 
+def _find_single_excel_file(root: Path) -> Path:
+    excel_files = sorted(
+        path for path in root.rglob('*')
+        if path.is_file() and path.suffix.lower() in {'.xlsx', '.xls'}
+    )
+    if not excel_files:
+        raise FileNotFoundError('excel zip 中缺少 xlsx/xls 文件')
+    return excel_files[0]
+
+
 def _save_uploaded_file(upload: UploadFile, destination: Path):
     destination.parent.mkdir(parents=True, exist_ok=True)
     upload.file.seek(0)
@@ -473,15 +483,12 @@ async def upload_assets(request: Request):
         _extract_zip_file(excel_zip, excel_unpack)
         processed_src = processed_unpack / 'indoor_style_recognition' / 'data' / 'processed'
         model_src = model_unpack / 'indoor_style_recognition' / 'models' / 'best_model.pth'
-        excel_src = excel_unpack / '室内设计风格.xlsx'
+        excel_src = _find_single_excel_file(excel_unpack)
 
         if not processed_src.exists():
             raise FileNotFoundError('processed zip 中缺少 indoor_style_recognition/data/processed')
         if not model_src.exists():
             raise FileNotFoundError('model zip 中缺少 indoor_style_recognition/models/best_model.pth')
-        if not excel_src.exists():
-            raise FileNotFoundError('excel zip 中缺少 室内设计风格.xlsx')
-
         _copy_tree_contents(processed_src, Path(PROCESSED_DIR))
         Path(CHECKPOINT_PATH).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(model_src, Path(CHECKPOINT_PATH))
