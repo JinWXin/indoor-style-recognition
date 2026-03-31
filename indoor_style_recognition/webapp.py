@@ -36,10 +36,12 @@ STATIC_DIR = BASE_DIR / 'web_static'
 UPLOAD_DIR = Path(PROCESSED_DIR) / 'web_uploads'
 TRAINING_STATUS_PATH = Path(PROCESSED_DIR) / 'training_status.json'
 DATASET_IMAGE_DIR = Path(TRAIN_IMAGE_ROOT)
+ASSET_UPLOAD_DIR = Path(PROCESSED_DIR) / 'asset_uploads'
 
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DATASET_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+ASSET_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title='室内风格协作标注平台')
 app.mount('/static', StaticFiles(directory=str(STATIC_DIR)), name='static')
@@ -216,6 +218,11 @@ def build_context(**extra):
         'message': '',
         'error': '',
         'result': None,
+        'asset_uploads': {
+            'processed_bundle': (ASSET_UPLOAD_DIR / 'render_processed_bundle.zip').exists(),
+            'model_bundle': (ASSET_UPLOAD_DIR / 'render_model_bundle.zip').exists(),
+            'excel_bundle': (ASSET_UPLOAD_DIR / 'render_excel_bundle.zip').exists(),
+        },
     }
     base.update(extra)
     return base
@@ -239,6 +246,21 @@ def _copy_tree_contents(source: Path, destination: Path):
             shutil.copytree(item, target)
         else:
             shutil.copy2(item, target)
+
+
+def _extract_zip_file(zip_path: Path, destination: Path):
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path) as archive:
+        archive.extractall(destination)
+
+
+def _save_uploaded_file(upload: UploadFile, destination: Path):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    upload.file.seek(0)
+    with destination.open('wb') as handle:
+        shutil.copyfileobj(upload.file, handle)
 
 
 @app.get('/', response_class=HTMLResponse)
@@ -387,25 +409,68 @@ async def refresh_model(request: Request):
     )
 
 
-@app.post('/upload-assets', response_class=HTMLResponse)
-async def upload_assets(
+@app.post('/upload-asset-bundle', response_class=HTMLResponse)
+async def upload_asset_bundle(
     request: Request,
-    processed_bundle: UploadFile = File(...),
-    model_bundle: UploadFile = File(...),
-    excel_bundle: UploadFile = File(...),
+    bundle_kind: str = Form(...),
+    bundle_file: UploadFile = File(...),
 ):
     try:
+        bundle_map = {
+            'processed': 'render_processed_bundle.zip',
+            'model': 'render_model_bundle.zip',
+            'excel': 'render_excel_bundle.zip',
+        }
+        if bundle_kind not in bundle_map:
+            raise ValueError('未知资产类型，请重新选择。')
+        if not (bundle_file.filename or '').lower().endswith('.zip'):
+            raise ValueError('请上传 zip 文件。')
+
+        destination = ASSET_UPLOAD_DIR / bundle_map[bundle_kind]
+        _save_uploaded_file(bundle_file, destination)
+        label_map = {
+            'processed': 'processed zip',
+            'model': 'model zip',
+            'excel': 'excel zip',
+        }
+        return templates.TemplateResponse(
+            request=request,
+            name='index.html',
+            context=build_context(message=f'{label_map[bundle_kind]} 已上传到云端暂存区。'),
+        )
+    except Exception as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name='index.html',
+            context=build_context(error=f'资产上传失败：{exc}'),
+        )
+
+
+@app.post('/upload-assets', response_class=HTMLResponse)
+async def upload_assets(request: Request):
+    try:
+        processed_zip = ASSET_UPLOAD_DIR / 'render_processed_bundle.zip'
+        model_zip = ASSET_UPLOAD_DIR / 'render_model_bundle.zip'
+        excel_zip = ASSET_UPLOAD_DIR / 'render_excel_bundle.zip'
+        missing = [
+            label for label, path in (
+                ('processed zip', processed_zip),
+                ('model zip', model_zip),
+                ('excel zip', excel_zip),
+            ) if not path.exists()
+        ]
+        if missing:
+            raise FileNotFoundError(f"还缺这些文件：{', '.join(missing)}")
+
         tmp_root = Path(PROCESSED_DIR) / 'asset_imports'
         tmp_root.mkdir(parents=True, exist_ok=True)
-
         processed_unpack = tmp_root / 'processed_unpack'
         model_unpack = tmp_root / 'model_unpack'
         excel_unpack = tmp_root / 'excel_unpack'
 
-        _extract_zip_bytes(await processed_bundle.read(), processed_unpack)
-        _extract_zip_bytes(await model_bundle.read(), model_unpack)
-        _extract_zip_bytes(await excel_bundle.read(), excel_unpack)
-
+        _extract_zip_file(processed_zip, processed_unpack)
+        _extract_zip_file(model_zip, model_unpack)
+        _extract_zip_file(excel_zip, excel_unpack)
         processed_src = processed_unpack / 'indoor_style_recognition' / 'data' / 'processed'
         model_src = model_unpack / 'indoor_style_recognition' / 'models' / 'best_model.pth'
         excel_src = excel_unpack / '室内设计风格.xlsx'

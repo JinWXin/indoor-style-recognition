@@ -42,21 +42,43 @@
     </section>
     <section class="card">
       <h2>上传云端资产</h2>
-      <p>把 `processed zip`、`model zip`、`excel zip` 传上来后，网站会自动解压并重新加载模型。</p>
-      <form action="/upload-assets" method="post" enctype="multipart/form-data" class="stack">
+      <p>改成分开上传 3 个 zip，先传完，再点一次应用，避免大文件一次性提交导致超时。</p>
+      <div class="stack">
+        <form action="/upload-asset-bundle" method="post" enctype="multipart/form-data" class="stack">
+          <input type="hidden" name="bundle_kind" value="processed">
+          <label>
+            processed zip
+            <input type="file" name="bundle_file" accept=".zip" required>
+          </label>
+          <button type="submit">上传 processed zip{% if asset_uploads.processed_bundle %}（已上传）{% endif %}</button>
+        </form>
+        <form action="/upload-asset-bundle" method="post" enctype="multipart/form-data" class="stack">
+          <input type="hidden" name="bundle_kind" value="model">
+          <label>
+            model zip
+            <input type="file" name="bundle_file" accept=".zip" required>
+          </label>
+          <button type="submit">上传 model zip{% if asset_uploads.model_bundle %}（已上传）{% endif %}</button>
+        </form>
+        <form action="/upload-asset-bundle" method="post" enctype="multipart/form-data" class="stack">
+          <input type="hidden" name="bundle_kind" value="excel">
+          <label>
+            excel zip
+            <input type="file" name="bundle_file" accept=".zip" required>
+          </label>
+          <button type="submit">上传 excel zip{% if asset_uploads.excel_bundle %}（已上传）{% endif %}</button>
+        </form>
+      </div>
+      <form action="/upload-assets" method="post" class="stack">
         <label>
-          processed zip
-          <input type="file" name="processed_bundle" accept=".zip" required>
+          当前状态：
+          <div class="pill-list">
+            <span class="pill">processed {% if asset_uploads.processed_bundle %}已上传{% else %}未上传{% endif %}</span>
+            <span class="pill">model {% if asset_uploads.model_bundle %}已上传{% else %}未上传{% endif %}</span>
+            <span class="pill">excel {% if asset_uploads.excel_bundle %}已上传{% else %}未上传{% endif %}</span>
+          </div>
         </label>
-        <label>
-          model zip
-          <input type="file" name="model_bundle" accept=".zip" required>
-        </label>
-        <label>
-          excel zip
-          <input type="file" name="excel_bundle" accept=".zip" required>
-        </label>
-        <button type="submit">上传并恢复识别</button>
+        <button type="submit">应用已上传资产并恢复识别</button>
       </form>
     </section>
     {% endif %}
