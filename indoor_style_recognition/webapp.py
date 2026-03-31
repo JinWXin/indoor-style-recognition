@@ -5,6 +5,9 @@ FastAPI 网页应用：用于多人上传图片、识别、反馈和触发重训
 import json
 import sys
 import threading
+import zipfile
+import shutil
+from io import BytesIO
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
@@ -15,7 +18,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import CHECKPOINT_PATH, EXCLUDED_STYLE_CATEGORIES, PROCESSED_DIR, TRAIN_IMAGE_ROOT
+from config import CHECKPOINT_PATH, EXCEL_PATH, EXCLUDED_STYLE_CATEGORIES, PROCESSED_DIR, TRAIN_IMAGE_ROOT
 from data_processor import DataProcessor
 from feedback_loop import (
     append_feedback_log,
@@ -218,6 +221,26 @@ def build_context(**extra):
     return base
 
 
+def _extract_zip_bytes(binary: bytes, destination: Path):
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(BytesIO(binary)) as archive:
+        archive.extractall(destination)
+
+
+def _copy_tree_contents(source: Path, destination: Path):
+    destination.mkdir(parents=True, exist_ok=True)
+    for item in source.iterdir():
+        target = destination / item.name
+        if item.is_dir():
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(item, target)
+        else:
+            shutil.copy2(item, target)
+
+
 @app.get('/', response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse(
@@ -362,6 +385,55 @@ async def refresh_model(request: Request):
         name='index.html',
         context=build_context(message=message, error=error),
     )
+
+
+@app.post('/upload-assets', response_class=HTMLResponse)
+async def upload_assets(
+    request: Request,
+    processed_bundle: UploadFile = File(...),
+    model_bundle: UploadFile = File(...),
+    excel_bundle: UploadFile = File(...),
+):
+    try:
+        tmp_root = Path(PROCESSED_DIR) / 'asset_imports'
+        tmp_root.mkdir(parents=True, exist_ok=True)
+
+        processed_unpack = tmp_root / 'processed_unpack'
+        model_unpack = tmp_root / 'model_unpack'
+        excel_unpack = tmp_root / 'excel_unpack'
+
+        _extract_zip_bytes(await processed_bundle.read(), processed_unpack)
+        _extract_zip_bytes(await model_bundle.read(), model_unpack)
+        _extract_zip_bytes(await excel_bundle.read(), excel_unpack)
+
+        processed_src = processed_unpack / 'indoor_style_recognition' / 'data' / 'processed'
+        model_src = model_unpack / 'indoor_style_recognition' / 'models' / 'best_model.pth'
+        excel_src = excel_unpack / '室内设计风格.xlsx'
+
+        if not processed_src.exists():
+            raise FileNotFoundError('processed zip 中缺少 indoor_style_recognition/data/processed')
+        if not model_src.exists():
+            raise FileNotFoundError('model zip 中缺少 indoor_style_recognition/models/best_model.pth')
+        if not excel_src.exists():
+            raise FileNotFoundError('excel zip 中缺少 室内设计风格.xlsx')
+
+        _copy_tree_contents(processed_src, Path(PROCESSED_DIR))
+        Path(CHECKPOINT_PATH).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(model_src, Path(CHECKPOINT_PATH))
+        shutil.copy2(excel_src, Path(EXCEL_PATH))
+
+        refresh_predictor()
+        return templates.TemplateResponse(
+            request=request,
+            name='index.html',
+            context=build_context(message='云端资产已上传完成，模型已重新加载，识别功能已恢复。'),
+        )
+    except Exception as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name='index.html',
+            context=build_context(error=f'云端资产上传失败：{exc}'),
+        )
 
 
 @app.get('/training-status', response_class=HTMLResponse)

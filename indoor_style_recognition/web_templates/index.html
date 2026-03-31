@@ -40,6 +40,25 @@
       当前网页已经上线，但云端模型文件还没准备好，所以暂时不能识别图片。
       {% if predictor_error %}详细原因：{{ predictor_error }}{% endif %}
     </section>
+    <section class="card">
+      <h2>上传云端资产</h2>
+      <p>把 `processed zip`、`model zip`、`excel zip` 传上来后，网站会自动解压并重新加载模型。</p>
+      <form action="/upload-assets" method="post" enctype="multipart/form-data" class="stack">
+        <label>
+          processed zip
+          <input type="file" name="processed_bundle" accept=".zip" required>
+        </label>
+        <label>
+          model zip
+          <input type="file" name="model_bundle" accept=".zip" required>
+        </label>
+        <label>
+          excel zip
+          <input type="file" name="excel_bundle" accept=".zip" required>
+        </label>
+        <button type="submit">上传并恢复识别</button>
+      </form>
+    </section>
     {% endif %}
 
     <section class="mobile-quick-actions">
