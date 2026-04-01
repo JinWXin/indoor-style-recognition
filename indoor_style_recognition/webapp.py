@@ -7,6 +7,7 @@ import sys
 import threading
 import zipfile
 import shutil
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -37,6 +38,7 @@ UPLOAD_DIR = Path(PROCESSED_DIR) / 'web_uploads'
 TRAINING_STATUS_PATH = Path(PROCESSED_DIR) / 'training_status.json'
 DATASET_IMAGE_DIR = Path(TRAIN_IMAGE_ROOT)
 ASSET_UPLOAD_DIR = Path(PROCESSED_DIR) / 'asset_uploads'
+ASSET_RESTORE_STATUS_PATH = Path(PROCESSED_DIR) / 'asset_restore_status.json'
 
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -53,6 +55,8 @@ _predictor_cache = None
 _predictor_init_error = ''
 _training_thread = None
 _training_lock = threading.Lock()
+_asset_restore_thread = None
+_asset_restore_lock = threading.Lock()
 
 
 def get_predictor():
@@ -120,6 +124,25 @@ def write_training_status(status, detail=''):
         'updated_at': __import__('datetime').datetime.now().isoformat(timespec='seconds'),
     }
     TRAINING_STATUS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+def write_asset_restore_status(status, detail=''):
+    payload = {
+        'status': status,
+        'detail': detail,
+        'updated_at': datetime.now().isoformat(timespec='seconds'),
+    }
+    ASSET_RESTORE_STATUS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+def load_asset_restore_status():
+    if ASSET_RESTORE_STATUS_PATH.exists():
+        return json.loads(ASSET_RESTORE_STATUS_PATH.read_text(encoding='utf-8'))
+    return {
+        'status': 'idle',
+        'detail': '尚未开始上传云端资产。',
+        'updated_at': '',
+    }
 
 
 def load_training_status():
@@ -215,6 +238,7 @@ def build_context(**extra):
         'predictor_stale_reason': predictor.stale_reason if predictor is not None else '',
         'predictor_available': predictor is not None,
         'predictor_error': _predictor_init_error,
+        'asset_restore_status': load_asset_restore_status(),
         'message': '',
         'error': '',
         'result': None,
@@ -271,6 +295,74 @@ def _save_uploaded_file(upload: UploadFile, destination: Path):
     upload.file.seek(0)
     with destination.open('wb') as handle:
         shutil.copyfileobj(upload.file, handle)
+
+
+def _apply_uploaded_assets():
+    processed_zip = ASSET_UPLOAD_DIR / 'render_processed_bundle.zip'
+    model_zip = ASSET_UPLOAD_DIR / 'render_model_bundle.zip'
+    excel_zip = ASSET_UPLOAD_DIR / 'render_excel_bundle.zip'
+
+    missing = [
+        label for label, path in (
+            ('processed zip', processed_zip),
+            ('model zip', model_zip),
+            ('excel zip', excel_zip),
+        ) if not path.exists()
+    ]
+    if missing:
+        raise FileNotFoundError(f"还缺这些文件：{', '.join(missing)}")
+
+    tmp_root = Path(PROCESSED_DIR) / 'asset_imports'
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    processed_unpack = tmp_root / 'processed_unpack'
+    model_unpack = tmp_root / 'model_unpack'
+    excel_unpack = tmp_root / 'excel_unpack'
+
+    write_asset_restore_status('running', '正在解压 processed / model / excel 三个资产包...')
+    _extract_zip_file(processed_zip, processed_unpack)
+    _extract_zip_file(model_zip, model_unpack)
+    _extract_zip_file(excel_zip, excel_unpack)
+
+    processed_src = processed_unpack / 'indoor_style_recognition' / 'data' / 'processed'
+    model_src = model_unpack / 'indoor_style_recognition' / 'models' / 'best_model.pth'
+    excel_src = _find_single_excel_file(excel_unpack)
+
+    if not processed_src.exists():
+        raise FileNotFoundError('processed zip 中缺少 indoor_style_recognition/data/processed')
+    if not model_src.exists():
+        raise FileNotFoundError('model zip 中缺少 indoor_style_recognition/models/best_model.pth')
+
+    write_asset_restore_status('running', '正在把处理文件、模型和 Excel 复制到 Render 磁盘...')
+    _copy_tree_contents(processed_src, Path(PROCESSED_DIR))
+    Path(CHECKPOINT_PATH).parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(model_src, Path(CHECKPOINT_PATH))
+    shutil.copy2(excel_src, Path(EXCEL_PATH))
+
+    write_asset_restore_status('running', '文件复制完成，正在重新加载模型...')
+    refresh_predictor()
+    write_asset_restore_status('completed', '云端资产已恢复完成，模型已重新加载。')
+
+
+def run_background_asset_restore():
+    try:
+        _apply_uploaded_assets()
+    except Exception as exc:
+        write_asset_restore_status('failed', f'云端资产恢复失败：{exc}')
+
+
+def start_background_asset_restore():
+    global _asset_restore_thread
+    with _asset_restore_lock:
+        if _asset_restore_thread is not None and _asset_restore_thread.is_alive():
+            return False
+
+        _asset_restore_thread = threading.Thread(
+            target=run_background_asset_restore,
+            name='asset-restore-worker',
+            daemon=True,
+        )
+        _asset_restore_thread.start()
+        return True
 
 
 @app.get('/', response_class=HTMLResponse)
@@ -438,6 +530,7 @@ async def upload_asset_bundle(
 
         destination = ASSET_UPLOAD_DIR / bundle_map[bundle_kind]
         _save_uploaded_file(bundle_file, destination)
+        write_asset_restore_status('idle', f'{bundle_kind} 资产包已上传，等待应用。')
         label_map = {
             'processed': 'processed zip',
             'model': 'model zip',
@@ -459,46 +552,16 @@ async def upload_asset_bundle(
 @app.post('/upload-assets', response_class=HTMLResponse)
 async def upload_assets(request: Request):
     try:
-        processed_zip = ASSET_UPLOAD_DIR / 'render_processed_bundle.zip'
-        model_zip = ASSET_UPLOAD_DIR / 'render_model_bundle.zip'
-        excel_zip = ASSET_UPLOAD_DIR / 'render_excel_bundle.zip'
-        missing = [
-            label for label, path in (
-                ('processed zip', processed_zip),
-                ('model zip', model_zip),
-                ('excel zip', excel_zip),
-            ) if not path.exists()
-        ]
-        if missing:
-            raise FileNotFoundError(f"还缺这些文件：{', '.join(missing)}")
-
-        tmp_root = Path(PROCESSED_DIR) / 'asset_imports'
-        tmp_root.mkdir(parents=True, exist_ok=True)
-        processed_unpack = tmp_root / 'processed_unpack'
-        model_unpack = tmp_root / 'model_unpack'
-        excel_unpack = tmp_root / 'excel_unpack'
-
-        _extract_zip_file(processed_zip, processed_unpack)
-        _extract_zip_file(model_zip, model_unpack)
-        _extract_zip_file(excel_zip, excel_unpack)
-        processed_src = processed_unpack / 'indoor_style_recognition' / 'data' / 'processed'
-        model_src = model_unpack / 'indoor_style_recognition' / 'models' / 'best_model.pth'
-        excel_src = _find_single_excel_file(excel_unpack)
-
-        if not processed_src.exists():
-            raise FileNotFoundError('processed zip 中缺少 indoor_style_recognition/data/processed')
-        if not model_src.exists():
-            raise FileNotFoundError('model zip 中缺少 indoor_style_recognition/models/best_model.pth')
-        _copy_tree_contents(processed_src, Path(PROCESSED_DIR))
-        Path(CHECKPOINT_PATH).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(model_src, Path(CHECKPOINT_PATH))
-        shutil.copy2(excel_src, Path(EXCEL_PATH))
-
-        refresh_predictor()
+        started = start_background_asset_restore()
+        message = (
+            '云端资产恢复任务已经启动，请等待 10-60 秒后刷新页面。'
+            if started else
+            '云端资产恢复任务已经在后台运行，请稍候刷新页面查看结果。'
+        )
         return templates.TemplateResponse(
             request=request,
             name='index.html',
-            context=build_context(message='云端资产已上传完成，模型已重新加载，识别功能已恢复。'),
+            context=build_context(message=message),
         )
     except Exception as exc:
         return templates.TemplateResponse(
