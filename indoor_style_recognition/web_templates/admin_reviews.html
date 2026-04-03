@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>待审核反馈管理台</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="page">
+    <nav class="topnav">
+      <a href="/">识别台</a>
+      <a href="/admin/reviews" class="active">审核台</a>
+      <a href="/training-status">训练状态</a>
+    </nav>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Admin Review Console</p>
+        <h1>待审核反馈管理台</h1>
+        <p class="lead">普通用户提交的反馈会先进入这里，审核通过后才会加入训练图库；驳回则直接退回，不进入训练数据。</p>
+      </div>
+      {% if admin_logged_in %}
+      <form action="/admin/logout" method="post">
+        <button class="secondary" type="submit">退出登录</button>
+      </form>
+      {% endif %}
+    </section>
+
+    {% if message %}
+    <section class="notice success">{{ message }}</section>
+    {% endif %}
+    {% if error %}
+    <section class="notice error">{{ error }}</section>
+    {% endif %}
+
+    <section class="card">
+      <div class="section-head">
+        <h2>待审核反馈</h2>
+        <span class="text-link">当前 {{ pending_reviews|length }} 条</span>
+      </div>
+      {% if pending_reviews %}
+      <div class="review-list">
+        {% for row in pending_reviews %}
+        <article class="review-card">
+          <div class="review-preview">
+            {% if row.pending_url %}
+            <img src="{{ row.pending_url }}" alt="{{ row.chosen_style }}" class="thumb-image">
+            {% endif %}
+          </div>
+          <div class="review-body">
+            <div class="review-meta">
+              <strong>{{ row.chosen_style }}</strong>
+              <span>{{ row.timestamp }}</span>
+            </div>
+            <p>审核编号：{{ row.review_id }}</p>
+            <p>来源：{{ row.image_source }}</p>
+            <p>反馈类型：{{ '预测正确' if row.is_correct == '1' else '人工纠错' }}</p>
+            <p>Top1 / Top2 / Top3：{{ row.pred_1_style }} / {{ row.pred_2_style }} / {{ row.pred_3_style }}</p>
+            <form action="/review-feedback" method="post" class="stack review-form">
+              <input type="hidden" name="review_id" value="{{ row.review_id }}">
+              <label>
+                审核备注
+                <input type="text" name="review_note" placeholder="可选：记录来源、质量、为什么驳回">
+              </label>
+              <div class="review-actions">
+                <button type="submit" name="review_action" value="approve">通过并加入训练库</button>
+                <button type="submit" name="review_action" value="reject" class="secondary danger">驳回</button>
+              </div>
+            </form>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p>当前没有待审核反馈。</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

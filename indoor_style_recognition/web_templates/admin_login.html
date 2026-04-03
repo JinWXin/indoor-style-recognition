@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>管理员登录</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="page">
+    <nav class="topnav">
+      <a href="/">识别台</a>
+      <a href="/admin/login" class="active">管理员登录</a>
+      <a href="/training-status">训练状态</a>
+    </nav>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Admin Access</p>
+        <h1>审核台管理员登录</h1>
+        <p class="lead">审核页只对管理员开放。登录成功后，才能查看待审核反馈并执行通过或驳回操作。</p>
+      </div>
+    </section>
+
+    {% if error %}
+    <section class="notice error">{{ error }}</section>
+    {% endif %}
+    {% if message %}
+    <section class="notice success">{{ message }}</section>
+    {% endif %}
+
+    <section class="card">
+      <h2>输入管理员密码</h2>
+      <form action="/admin/login" method="post" class="stack">
+        <label>
+          管理员密码
+          <input type="password" name="password" placeholder="请输入管理员密码" required>
+        </label>
+        <button type="submit">登录审核台</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

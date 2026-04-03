@@ -67,3 +67,7 @@ MODEL_NAME = os.getenv('STYLE_MODEL_NAME', 'resnet50')  # 可选: resnet50, effi
 # 设备
 DEVICE = os.getenv('STYLE_DEVICE', 'cpu')   # 'cuda' or 'cpu'
 NUM_WORKERS = int(os.getenv('STYLE_NUM_WORKERS', '4'))
+
+# 管理后台认证
+ADMIN_PASSWORD = os.getenv('STYLE_ADMIN_PASSWORD', 'change-me')
+SESSION_SECRET = os.getenv('STYLE_SESSION_SECRET', 'indoor-style-review-session-secret')

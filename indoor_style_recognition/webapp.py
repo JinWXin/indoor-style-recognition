@@ -2,7 +2,9 @@
 FastAPI 网页应用：用于多人上传图片、识别、反馈和触发重训。
 """
 
+import hmac
 import json
+import os
 import sys
 import threading
 import zipfile
@@ -16,16 +18,30 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from PIL import Image
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import RedirectResponse
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import CHECKPOINT_PATH, EXCEL_PATH, EXCLUDED_STYLE_CATEGORIES, PROCESSED_DIR, TRAIN_IMAGE_ROOT
+from config import (
+    ADMIN_PASSWORD,
+    CHECKPOINT_PATH,
+    EXCEL_PATH,
+    EXCLUDED_STYLE_CATEGORIES,
+    PROCESSED_DIR,
+    SESSION_SECRET,
+    TRAIN_IMAGE_ROOT,
+)
 from data_processor import DataProcessor
 from feedback_loop import (
     append_feedback_log,
+    append_pending_review_log,
     load_recent_feedback,
+    load_pending_reviews,
     load_recent_wrong_feedback,
     save_feedback_image,
+    save_pending_review_image,
+    update_pending_review_status,
 )
 from inference import StylePredictor
 from train import Trainer
@@ -39,16 +55,27 @@ TRAINING_STATUS_PATH = Path(PROCESSED_DIR) / 'training_status.json'
 DATASET_IMAGE_DIR = Path(TRAIN_IMAGE_ROOT)
 ASSET_UPLOAD_DIR = Path(PROCESSED_DIR) / 'asset_uploads'
 ASSET_RESTORE_STATUS_PATH = Path(PROCESSED_DIR) / 'asset_restore_status.json'
+REVIEW_QUEUE_DIR = Path(PROCESSED_DIR) / 'review_queue'
+REVIEW_IMAGE_DIR = REVIEW_QUEUE_DIR / 'images'
 
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DATASET_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 ASSET_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+REVIEW_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title='室内风格协作标注平台')
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    session_cookie='style_admin_session',
+    same_site='lax',
+    https_only=os.getenv('STYLE_SESSION_HTTPS_ONLY', '0') == '1',
+)
 app.mount('/static', StaticFiles(directory=str(STATIC_DIR)), name='static')
 app.mount('/uploads', StaticFiles(directory=str(UPLOAD_DIR)), name='uploads')
 app.mount('/dataset-images', StaticFiles(directory=str(DATASET_IMAGE_DIR)), name='dataset-images')
+app.mount('/review-images', StaticFiles(directory=str(REVIEW_IMAGE_DIR)), name='review-images')
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 _predictor_cache = None
@@ -57,6 +84,24 @@ _training_thread = None
 _training_lock = threading.Lock()
 _asset_restore_thread = None
 _asset_restore_lock = threading.Lock()
+
+
+def _safe_error_message(prefix, exc):
+    return f'{prefix}: {exc}'
+
+
+def is_admin_authenticated(request: Request):
+    return bool(request.session.get('is_admin_authenticated'))
+
+
+def verify_admin_password(password: str):
+    return hmac.compare_digest(password or '', ADMIN_PASSWORD)
+
+
+def require_admin(request: Request):
+    if is_admin_authenticated(request):
+        return None
+    return RedirectResponse(url='/admin/login', status_code=303)
 
 
 def get_predictor():
@@ -85,6 +130,16 @@ def get_predictor_if_available():
         return None
 
 
+def predictor_artifacts_ready():
+    required_paths = [
+        Path(PROCESSED_DIR) / 'style_mapping.json',
+        Path(PROCESSED_DIR) / 'style_profiles.json',
+        Path(PROCESSED_DIR) / 'style_text_features.npz',
+        Path(CHECKPOINT_PATH),
+    ]
+    return all(path.exists() for path in required_paths)
+
+
 def dataset_image_url(path_value):
     path = Path(path_value)
     try:
@@ -103,9 +158,18 @@ def upload_image_url(path_value):
         return ''
 
 
+def review_image_url(path_value):
+    path = Path(path_value)
+    try:
+        rel = path.resolve().relative_to(REVIEW_IMAGE_DIR.resolve())
+        return f"/review-images/{rel.as_posix()}"
+    except Exception:
+        return ''
+
+
 def list_available_styles():
     """合并当前模型风格与本地图库风格，供网页下拉选择。"""
-    predictor = get_predictor_if_available()
+    predictor = _predictor_cache
     style_set = set(predictor.style_to_label.keys()) if predictor is not None else set()
 
     image_root = Path(TRAIN_IMAGE_ROOT)
@@ -155,6 +219,27 @@ def load_training_status():
     }
 
 
+def load_recent_feedback_safe(limit=20):
+    try:
+        return load_recent_feedback(limit=limit)
+    except Exception:
+        return []
+
+
+def load_recent_wrong_feedback_safe(limit=20):
+    try:
+        return load_recent_wrong_feedback(limit=limit)
+    except Exception:
+        return []
+
+
+def load_pending_reviews_safe(limit=50):
+    try:
+        return load_pending_reviews(limit=limit, status='pending')
+    except Exception:
+        return []
+
+
 def run_incremental_training_workflow():
     """后台执行数据处理与快速微调。"""
     try:
@@ -202,15 +287,19 @@ def build_training_snapshot():
         'processed_styles': 0,
         'model_updated_at': model_path.stat().st_mtime if model_path.exists() else None,
         'training_status': load_training_status(),
-        'feedback_total': len(load_recent_feedback(limit=100000)),
-        'feedback_wrong_total': len(load_recent_wrong_feedback(limit=100000)),
+        'feedback_total': len(load_recent_feedback_safe(limit=100000)),
+        'feedback_wrong_total': len(load_recent_wrong_feedback_safe(limit=100000)),
+        'snapshot_error': '',
     }
 
     if processed_path.exists():
-        import pandas as pd
-        df = pd.read_csv(processed_path, encoding='utf-8')
-        snapshot['processed_rows'] = int(len(df))
-        snapshot['processed_styles'] = int(df['style'].nunique()) if 'style' in df.columns else 0
+        try:
+            import pandas as pd
+            df = pd.read_csv(processed_path, encoding='utf-8')
+            snapshot['processed_rows'] = int(len(df))
+            snapshot['processed_styles'] = int(df['style'].nunique()) if 'style' in df.columns else 0
+        except Exception as exc:
+            snapshot['snapshot_error'] = _safe_error_message('processed 数据读取失败', exc)
 
     if snapshot['model_updated_at'] is not None:
         from datetime import datetime
@@ -221,24 +310,36 @@ def build_training_snapshot():
     return snapshot
 
 
-def build_context(**extra):
-    predictor = get_predictor_if_available()
+def build_context(skip_predictor_probe=False, **extra):
+    asset_restore_status = load_asset_restore_status()
+    should_probe_predictor = (
+        not skip_predictor_probe and
+        asset_restore_status.get('status') != 'running'
+    )
+    predictor = get_predictor_if_available() if should_probe_predictor else _predictor_cache
     recent_wrong_feedback = []
-    for row in load_recent_wrong_feedback(limit=12):
+    for row in load_recent_wrong_feedback_safe(limit=12):
         row = dict(row)
         row['saved_url'] = dataset_image_url(row.get('saved_path', ''))
         recent_wrong_feedback.append(row)
 
+    pending_reviews = []
+    for row in load_pending_reviews_safe(limit=20):
+        row = dict(row)
+        row['pending_url'] = review_image_url(row.get('pending_path', ''))
+        pending_reviews.append(row)
+
     base = {
         'styles': list_available_styles(),
-        'recent_feedback': load_recent_feedback(limit=15),
+        'recent_feedback': load_recent_feedback_safe(limit=15),
         'recent_wrong_feedback': recent_wrong_feedback,
+        'pending_reviews': pending_reviews,
         'training_snapshot': build_training_snapshot(),
         'predictor_is_stale': predictor.is_stale if predictor is not None else False,
         'predictor_stale_reason': predictor.stale_reason if predictor is not None else '',
         'predictor_available': predictor is not None,
         'predictor_error': _predictor_init_error,
-        'asset_restore_status': load_asset_restore_status(),
+        'asset_restore_status': asset_restore_status,
         'message': '',
         'error': '',
         'result': None,
@@ -247,6 +348,7 @@ def build_context(**extra):
             'model_bundle': (ASSET_UPLOAD_DIR / 'render_model_bundle.zip').exists(),
             'excel_bundle': (ASSET_UPLOAD_DIR / 'render_excel_bundle.zip').exists(),
         },
+        'admin_logged_in': False,
     }
     base.update(extra)
     return base
@@ -370,12 +472,66 @@ async def index(request: Request):
     return templates.TemplateResponse(
         request=request,
         name='index.html',
-        context=build_context(),
+        context=build_context(skip_predictor_probe=True),
     )
 
 
 @app.head('/')
 async def index_head():
+    return Response(status_code=200)
+
+
+@app.get('/admin/login', response_class=HTMLResponse)
+async def admin_login(request: Request):
+    if is_admin_authenticated(request):
+        return RedirectResponse(url='/admin/reviews', status_code=303)
+    return templates.TemplateResponse(
+        request=request,
+        name='admin_login.html',
+        context=build_context(skip_predictor_probe=True),
+    )
+
+
+@app.post('/admin/login', response_class=HTMLResponse)
+async def admin_login_submit(
+    request: Request,
+    password: str = Form(...),
+):
+    if verify_admin_password(password):
+        request.session['is_admin_authenticated'] = True
+        return RedirectResponse(url='/admin/reviews', status_code=303)
+
+    return templates.TemplateResponse(
+        request=request,
+        name='admin_login.html',
+        context=build_context(
+            skip_predictor_probe=True,
+            error='管理员密码不正确，请重试。',
+        ),
+        status_code=401,
+    )
+
+
+@app.post('/admin/logout')
+async def admin_logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url='/admin/login', status_code=303)
+
+
+@app.get('/admin/reviews', response_class=HTMLResponse)
+async def admin_reviews(request: Request):
+    redirect = require_admin(request)
+    if redirect is not None:
+        return redirect
+    return templates.TemplateResponse(
+        request=request,
+        name='admin_reviews.html',
+        context=build_context(skip_predictor_probe=True, admin_logged_in=True),
+    )
+
+
+@app.head('/admin/reviews')
+async def admin_reviews_head():
     return Response(status_code=200)
 
 
@@ -461,29 +617,22 @@ async def feedback(
         )
 
     image = predictor.load_image(str(image_path))
-    saved_path = save_feedback_image(
+    pending_path = save_pending_review_image(
         predictor=predictor,
         image_input=str(image_path),
         style_name=final_style,
         image=image,
     )
-    append_feedback_log(
+    review_id = append_pending_review_log(
         image_input=str(image_path),
         predictions=predictions,
         chosen_style=final_style,
-        saved_path=saved_path,
+        pending_path=pending_path,
         is_correct=is_correct,
     )
 
-    message = f'反馈已记录，图片已归档到 {saved_path}'
-    if retrain_now == 'y':
-        started = start_background_incremental_training()
-        if started:
-            message += '；后台快速微调已经启动，你可以去训练状态页查看进度。'
-        else:
-            message += '；当前已有训练任务在后台运行，这次没有重复启动。'
-    else:
-        write_training_status('idle', '最近一次反馈已记录，尚未触发重训。')
+    message = f'反馈已进入待审核队列，审核编号 {review_id}。审核通过后才会加入训练库。'
+    write_training_status('idle', '最近一次反馈已进入待审核队列，尚未触发重训。')
 
     if image_path.exists():
         image_path.unlink()
@@ -492,6 +641,93 @@ async def feedback(
         request=request,
         name='index.html',
         context=build_context(message=message),
+    )
+
+
+@app.post('/review-feedback', response_class=HTMLResponse)
+async def review_feedback(
+    request: Request,
+    review_id: str = Form(...),
+    review_action: str = Form(...),
+    review_note: str = Form(''),
+):
+    redirect = require_admin(request)
+    if redirect is not None:
+        return redirect
+    predictor = get_predictor_if_available()
+    if predictor is None:
+        return templates.TemplateResponse(
+            request=request,
+            name='admin_reviews.html',
+            context=build_context(error='当前模型尚未准备好，暂时无法处理审核。', admin_logged_in=True),
+        )
+
+    pending_rows = load_pending_reviews_safe(limit=500)
+    row = next((item for item in pending_rows if item.get('review_id') == review_id), None)
+    if row is None:
+        return templates.TemplateResponse(
+            request=request,
+            name='admin_reviews.html',
+            context=build_context(error=f'未找到待审核记录：{review_id}', admin_logged_in=True),
+        )
+
+    pending_path = Path(row.get('pending_path', ''))
+    if not pending_path.exists():
+        return templates.TemplateResponse(
+            request=request,
+            name='admin_reviews.html',
+            context=build_context(error=f'待审核图片不存在：{pending_path}', admin_logged_in=True),
+        )
+
+    if review_action == 'approve':
+        image = predictor.load_image(str(pending_path))
+        saved_path = save_feedback_image(
+            predictor=predictor,
+            image_input=str(pending_path),
+            style_name=row.get('chosen_style', '').strip(),
+            image=image,
+        )
+        predictions = []
+        for idx in range(1, 4):
+            predictions.append({
+                'style': row.get(f'pred_{idx}_style', ''),
+                'confidence': float(row.get(f'pred_{idx}_confidence', 0.0) or 0.0),
+            })
+        append_feedback_log(
+            image_input=row.get('image_source', ''),
+            predictions=predictions,
+            chosen_style=row.get('chosen_style', ''),
+            saved_path=saved_path,
+            is_correct=row.get('is_correct') == '1',
+        )
+        update_pending_review_status(
+            review_id=review_id,
+            status='approved',
+            review_note=review_note,
+            approved_saved_path=saved_path,
+        )
+        pending_path.unlink(missing_ok=True)
+        message = f'审核已通过，图片已加入训练库：{saved_path}'
+    elif review_action == 'reject':
+        update_pending_review_status(
+            review_id=review_id,
+            status='rejected',
+            review_note=review_note,
+            approved_saved_path='',
+        )
+        pending_path.unlink(missing_ok=True)
+        message = f'审核已驳回：{review_id}'
+    else:
+        return templates.TemplateResponse(
+            request=request,
+            name='admin_reviews.html',
+            context=build_context(error='未知审核动作，请重试。', admin_logged_in=True),
+        )
+
+    return templates.TemplateResponse(
+        request=request,
+        name='admin_reviews.html',
+        context=build_context(message=message, admin_logged_in=True),
     )
 
 
@@ -539,13 +775,19 @@ async def upload_asset_bundle(
         return templates.TemplateResponse(
             request=request,
             name='index.html',
-            context=build_context(message=f'{label_map[bundle_kind]} 已上传到云端暂存区。'),
+            context=build_context(
+                skip_predictor_probe=True,
+                message=f'{label_map[bundle_kind]} 已上传到云端暂存区。',
+            ),
         )
     except Exception as exc:
         return templates.TemplateResponse(
             request=request,
             name='index.html',
-            context=build_context(error=f'资产上传失败：{exc}'),
+            context=build_context(
+                skip_predictor_probe=True,
+                error=f'资产上传失败：{exc}',
+            ),
         )
 
 
@@ -561,7 +803,10 @@ async def upload_assets(request: Request):
         return templates.TemplateResponse(
             request=request,
             name='index.html',
-            context=build_context(message=message),
+            context=build_context(
+                skip_predictor_probe=True,
+                message=message,
+            ),
         )
     except Exception as exc:
         return templates.TemplateResponse(
@@ -576,7 +821,7 @@ async def training_status(request: Request):
     return templates.TemplateResponse(
         request=request,
         name='training_status.html',
-        context=build_context(),
+        context=build_context(skip_predictor_probe=True),
     )
 
 
@@ -587,10 +832,10 @@ async def training_status_head():
 
 @app.get('/healthz')
 async def healthz():
-    predictor = get_predictor_if_available()
     return {
         'ok': True,
-        'predictor_ready': predictor is not None,
-        'num_styles': predictor.num_classes if predictor is not None else 0,
+        'predictor_ready': _predictor_cache is not None,
+        'predictor_files_ready': predictor_artifacts_ready(),
+        'num_styles': _predictor_cache.num_classes if _predictor_cache is not None else 0,
         'predictor_error': _predictor_init_error,
     }
