@@ -10,6 +10,7 @@
   <main class="page">
     <nav class="topnav">
       <a href="/">识别台</a>
+      <a href="/styles">风格图库</a>
       <a href="/training-status">训练状态</a>
     </nav>
 
@@ -108,7 +109,7 @@
         <h2>风格列表</h2>
         <div class="pill-list">
           {% for style in styles %}
-          <span class="pill">{{ style }}</span>
+          <a href="/styles?style={{ style }}" class="pill-link">{{ style }}</a>
           {% endfor %}
         </div>
       </div>

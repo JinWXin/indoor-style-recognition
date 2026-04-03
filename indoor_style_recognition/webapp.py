@@ -9,10 +9,12 @@ import sys
 import threading
 import zipfile
 import shutil
+from typing import Iterable
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
+import pandas as pd
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -30,6 +32,7 @@ from config import (
     EXCLUDED_STYLE_CATEGORIES,
     PROCESSED_DIR,
     SESSION_SECRET,
+    STYLE_DEFINITION_SHEET_NAME,
     TRAIN_IMAGE_ROOT,
 )
 from data_processor import DataProcessor
@@ -44,6 +47,7 @@ from feedback_loop import (
     update_pending_review_status,
 )
 from inference import StylePredictor
+from style_knowledge import STYLE_TEXT_COLUMNS, normalize_text
 from train import Trainer
 
 
@@ -84,6 +88,11 @@ _training_thread = None
 _training_lock = threading.Lock()
 _asset_restore_thread = None
 _asset_restore_lock = threading.Lock()
+_style_definition_cache = {
+    'excel_path': '',
+    'mtime': None,
+    'profiles': {},
+}
 
 
 def _safe_error_message(prefix, exc):
@@ -179,6 +188,157 @@ def list_available_styles():
                 style_set.add(path.name.strip())
 
     return sorted(style_set)
+
+
+def _human_size(num_bytes):
+    value = float(num_bytes or 0)
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if value < 1024 or unit == 'GB':
+            return f"{value:.0f} {unit}" if unit == 'B' else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{int(num_bytes)} B"
+
+
+def load_style_definition_profiles():
+    excel_path = Path(EXCEL_PATH)
+    if not excel_path.exists():
+        return {}
+
+    mtime = excel_path.stat().st_mtime
+    if (
+        _style_definition_cache['excel_path'] == str(excel_path) and
+        _style_definition_cache['mtime'] == mtime
+    ):
+        return _style_definition_cache['profiles']
+
+    definition_df = pd.read_excel(excel_path, sheet_name=STYLE_DEFINITION_SHEET_NAME)
+    if '美学风格词' not in definition_df.columns:
+        return {}
+
+    indexed = definition_df.copy()
+    indexed['美学风格词'] = indexed['美学风格词'].apply(normalize_text)
+    indexed = indexed[indexed['美学风格词'] != ''].drop_duplicates(subset=['美学风格词'], keep='first')
+
+    profiles = {}
+    for _, row in indexed.iterrows():
+        style_name = row.get('美学风格词', '')
+        if not style_name:
+            continue
+        profile = {'style': style_name}
+        for column, alias in STYLE_TEXT_COLUMNS:
+            profile[alias] = normalize_text(row[column]) if column in row.index else ''
+        profiles[style_name] = profile
+
+    _style_definition_cache['excel_path'] = str(excel_path)
+    _style_definition_cache['mtime'] = mtime
+    _style_definition_cache['profiles'] = profiles
+    return profiles
+
+
+def get_style_profile(style_name):
+    if not style_name:
+        return {}
+
+    profile = load_style_definition_profiles().get(style_name)
+    if profile:
+        return profile
+
+    return {
+        'style': style_name,
+        '定位': '',
+        '定位依据': '',
+        '定义': '',
+        '色彩': '',
+        '材料': '',
+        '形态': '',
+        '风格区别': '',
+        '典型特征': '',
+        '情绪氛围': '',
+        '搜索关键词': '',
+    }
+
+
+def list_style_gallery_items(style_name):
+    style_dir = Path(TRAIN_IMAGE_ROOT) / style_name
+    image_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
+    root = Path(TRAIN_IMAGE_ROOT).resolve()
+    items = []
+
+    if not style_dir.exists():
+        return items
+
+    for image_path in sorted(style_dir.iterdir()):
+        if not image_path.is_file() or image_path.suffix.lower() not in image_extensions:
+            continue
+        rel = image_path.resolve().relative_to(root)
+        stat = image_path.stat()
+        items.append({
+            'name': image_path.name,
+            'relative_path': rel.as_posix(),
+            'url': f"/dataset-images/{rel.as_posix()}",
+            'size_text': _human_size(stat.st_size),
+            'updated_at': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M'),
+        })
+
+    return items
+
+
+def build_style_sidebar(search_query='', current_style=''):
+    query = (search_query or '').strip().lower()
+    styles = []
+    for style_name in list_available_styles():
+        image_count = len(list_style_gallery_items(style_name))
+        if query and query not in style_name.lower():
+            continue
+        styles.append({
+            'name': style_name,
+            'image_count': image_count,
+            'active': style_name == current_style,
+        })
+    return styles
+
+
+def resolve_dataset_relative_path(relative_path):
+    root = Path(TRAIN_IMAGE_ROOT).resolve()
+    candidate = (root / relative_path).resolve()
+    candidate.relative_to(root)
+    return candidate
+
+
+def unique_destination_path(directory: Path, filename: str):
+    directory.mkdir(parents=True, exist_ok=True)
+    stem = Path(filename).stem or 'image'
+    suffix = Path(filename).suffix or '.jpg'
+    candidate = directory / f"{stem}{suffix}"
+    index = 1
+    while candidate.exists():
+        candidate = directory / f"{stem}_{index}{suffix}"
+        index += 1
+    return candidate
+
+
+def build_style_gallery_context(request: Request, style_name='', search_query='', message='', error=''):
+    sidebar = build_style_sidebar(search_query=search_query, current_style=style_name)
+    selected_style = style_name or (sidebar[0]['name'] if sidebar else '')
+    if selected_style and not any(item['name'] == selected_style for item in sidebar):
+        sidebar = build_style_sidebar(search_query='', current_style=selected_style)
+
+    selected_profile = get_style_profile(selected_style) if selected_style else {}
+    selected_images = list_style_gallery_items(selected_style) if selected_style else []
+
+    return build_context(
+        skip_predictor_probe=True,
+        admin_logged_in=is_admin_authenticated(request),
+        message=message,
+        error=error,
+        style_search_query=search_query,
+        style_sidebar=sidebar,
+        selected_style=selected_style,
+        selected_style_profile=selected_profile,
+        selected_style_images=selected_images,
+        selected_style_image_count=len(selected_images),
+        style_profile_fields=[alias for _, alias in STYLE_TEXT_COLUMNS if alias != '搜索关键词'],
+    )
 
 
 def write_training_status(status, detail=''):
@@ -479,6 +639,138 @@ async def index(request: Request):
 @app.head('/')
 async def index_head():
     return Response(status_code=200)
+
+
+@app.get('/styles', response_class=HTMLResponse)
+async def style_gallery(
+    request: Request,
+    style: str = '',
+    q: str = '',
+):
+    return templates.TemplateResponse(
+        request=request,
+        name='style_gallery.html',
+        context=build_style_gallery_context(
+            request=request,
+            style_name=style.strip(),
+            search_query=q.strip(),
+        ),
+    )
+
+
+@app.post('/styles/upload', response_class=HTMLResponse)
+async def upload_style_images(
+    request: Request,
+    style_name: str = Form(...),
+    search_query: str = Form(''),
+    image_files: list[UploadFile] = File(...),
+):
+    redirect = require_admin(request)
+    if redirect is not None:
+        return redirect
+
+    saved_count = 0
+    image_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
+    target_dir = Path(TRAIN_IMAGE_ROOT) / style_name.strip()
+
+    try:
+        if not style_name.strip():
+            raise ValueError('请先选择要上传到哪个风格。')
+
+        for upload in image_files:
+            suffix = Path(upload.filename or '').suffix.lower()
+            if suffix not in image_extensions:
+                continue
+            destination = unique_destination_path(target_dir, upload.filename or f'upload{suffix}')
+            _save_uploaded_file(upload, destination)
+            saved_count += 1
+
+        if saved_count == 0:
+            raise ValueError('没有上传成功的图片，请确认文件格式为 jpg/png/webp/bmp。')
+
+        context = build_style_gallery_context(
+            request=request,
+            style_name=style_name.strip(),
+            search_query=search_query.strip(),
+            message=f'已上传 {saved_count} 张图片到风格「{style_name.strip()}」。',
+        )
+    except Exception as exc:
+        context = build_style_gallery_context(
+            request=request,
+            style_name=style_name.strip(),
+            search_query=search_query.strip(),
+            error=f'上传图片失败：{exc}',
+        )
+
+    return templates.TemplateResponse(request=request, name='style_gallery.html', context=context)
+
+
+@app.post('/styles/delete', response_class=HTMLResponse)
+async def delete_style_image(
+    request: Request,
+    style_name: str = Form(...),
+    search_query: str = Form(''),
+    relative_path: str = Form(...),
+):
+    redirect = require_admin(request)
+    if redirect is not None:
+        return redirect
+
+    try:
+        target_path = resolve_dataset_relative_path(relative_path)
+        target_path.unlink(missing_ok=True)
+        context = build_style_gallery_context(
+            request=request,
+            style_name=style_name.strip(),
+            search_query=search_query.strip(),
+            message=f'已删除图片：{Path(relative_path).name}',
+        )
+    except Exception as exc:
+        context = build_style_gallery_context(
+            request=request,
+            style_name=style_name.strip(),
+            search_query=search_query.strip(),
+            error=f'删除图片失败：{exc}',
+        )
+
+    return templates.TemplateResponse(request=request, name='style_gallery.html', context=context)
+
+
+@app.post('/styles/move', response_class=HTMLResponse)
+async def move_style_image(
+    request: Request,
+    style_name: str = Form(...),
+    target_style: str = Form(...),
+    search_query: str = Form(''),
+    relative_path: str = Form(...),
+):
+    redirect = require_admin(request)
+    if redirect is not None:
+        return redirect
+
+    try:
+        if not target_style.strip():
+            raise ValueError('请选择目标风格。')
+
+        source_path = resolve_dataset_relative_path(relative_path)
+        destination_dir = Path(TRAIN_IMAGE_ROOT) / target_style.strip()
+        destination = unique_destination_path(destination_dir, source_path.name)
+        shutil.move(str(source_path), str(destination))
+        context = build_style_gallery_context(
+            request=request,
+            style_name=target_style.strip(),
+            search_query=search_query.strip(),
+            message=f'已把图片移动到风格「{target_style.strip()}」。',
+        )
+    except Exception as exc:
+        context = build_style_gallery_context(
+            request=request,
+            style_name=style_name.strip(),
+            search_query=search_query.strip(),
+            error=f'更改风格失败：{exc}',
+        )
+
+    return templates.TemplateResponse(request=request, name='style_gallery.html', context=context)
 
 
 @app.get('/admin/login', response_class=HTMLResponse)

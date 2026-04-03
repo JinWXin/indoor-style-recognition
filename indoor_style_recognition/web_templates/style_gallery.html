@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>风格图库</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="page">
+    <nav class="topnav">
+      <a href="/">识别台</a>
+      <a href="/styles" class="active">风格图库</a>
+      <a href="/training-status">训练状态</a>
+      {% if admin_logged_in %}
+      <a href="/admin/reviews">审核台</a>
+      {% else %}
+      <a href="/admin/login">管理员登录</a>
+      {% endif %}
+    </nav>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Style Library</p>
+        <h1>风格图库</h1>
+        <p class="lead">可公开查看每个风格的定义、色彩、材料与原图，支持查看原图、下载原图和按风格搜索。管理员登录后可上传、改风格和删除图片。</p>
+      </div>
+      {% if admin_logged_in %}
+      <form action="/admin/logout" method="post">
+        <button class="secondary" type="submit">退出管理员</button>
+      </form>
+      {% endif %}
+    </section>
+
+    {% if message %}
+    <section class="notice success">{{ message }}</section>
+    {% endif %}
+    {% if error %}
+    <section class="notice error">{{ error }}</section>
+    {% endif %}
+
+    <section class="card">
+      <form action="/styles" method="get" class="style-search-form">
+        <label class="style-search-label">
+          搜索风格
+          <input type="text" name="q" value="{{ style_search_query }}" placeholder="例如：侘寂、奶油、现代简约">
+        </label>
+        {% if selected_style %}
+        <input type="hidden" name="style" value="{{ selected_style }}">
+        {% endif %}
+        <button type="submit">搜索</button>
+      </form>
+    </section>
+
+    <section class="style-browser-layout">
+      <div class="style-main-column">
+        <section class="card">
+          <div class="section-head">
+            <div>
+              <h2>{{ selected_style or '暂无风格' }}</h2>
+              <p class="muted-text">当前风格共 {{ selected_style_image_count }} 张图片</p>
+            </div>
+            {% if selected_style %}
+            <div class="inline-actions">
+              <button type="button" class="secondary" data-select-all>全选当前页</button>
+              <button type="button" data-download-selected>下载选中原图</button>
+            </div>
+            {% endif %}
+          </div>
+
+          {% if admin_logged_in and selected_style %}
+          <form action="/styles/upload" method="post" enctype="multipart/form-data" class="stack admin-panel">
+            <input type="hidden" name="style_name" value="{{ selected_style }}">
+            <input type="hidden" name="search_query" value="{{ style_search_query }}">
+            <h3>管理员上传</h3>
+            <label>
+              上传到「{{ selected_style }}」
+              <input type="file" name="image_files" accept="image/*" multiple required>
+            </label>
+            <button type="submit">上传图片到当前风格</button>
+          </form>
+          {% endif %}
+
+          {% if selected_style %}
+          <div class="style-profile-grid">
+            {% for field in style_profile_fields %}
+            <article class="profile-card">
+              <h3>{{ field }}</h3>
+              <p>{{ selected_style_profile.get(field) or '暂无内容' }}</p>
+            </article>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p>没有匹配到风格，请换个关键词再试。</p>
+          {% endif %}
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <h2>原图列表</h2>
+            <span class="text-link">任何人都可以查看和下载原图</span>
+          </div>
+
+          {% if selected_style_images %}
+          <div class="asset-gallery">
+            {% for image in selected_style_images %}
+            <article class="asset-card">
+              <label class="asset-select">
+                <input type="checkbox" class="asset-checkbox" data-download-url="{{ image.url }}" data-download-name="{{ image.name }}">
+                <span>选中</span>
+              </label>
+              <a href="{{ image.url }}" target="_blank" rel="noopener noreferrer">
+                <img src="{{ image.url }}" alt="{{ image.name }}" class="asset-image">
+              </a>
+              <div class="asset-body">
+                <strong>{{ image.name }}</strong>
+                <p>{{ image.size_text }} · {{ image.updated_at }}</p>
+                <div class="asset-actions">
+                  <a href="{{ image.url }}" target="_blank" rel="noopener noreferrer" class="text-button">查看原图</a>
+                  <a href="{{ image.url }}" download="{{ image.name }}" class="text-button">下载原图</a>
+                </div>
+
+                {% if admin_logged_in %}
+                <form action="/styles/move" method="post" class="stack mini-form">
+                  <input type="hidden" name="style_name" value="{{ selected_style }}">
+                  <input type="hidden" name="search_query" value="{{ style_search_query }}">
+                  <input type="hidden" name="relative_path" value="{{ image.relative_path }}">
+                  <label>
+                    更改风格
+                    <select name="target_style" required>
+                      <option value="">请选择目标风格</option>
+                      {% for style_item in styles %}
+                      <option value="{{ style_item }}" {% if style_item == selected_style %}disabled{% endif %}>{{ style_item }}</option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                  <button type="submit" class="secondary">移动到其他风格</button>
+                </form>
+
+                <form action="/styles/delete" method="post" class="mini-form">
+                  <input type="hidden" name="style_name" value="{{ selected_style }}">
+                  <input type="hidden" name="search_query" value="{{ style_search_query }}">
+                  <input type="hidden" name="relative_path" value="{{ image.relative_path }}">
+                  <button type="submit" class="secondary danger">删除图片</button>
+                </form>
+                {% endif %}
+              </div>
+            </article>
+            {% endfor %}
+          </div>
+          {% elif selected_style %}
+          <p>当前风格还没有图片。</p>
+          {% endif %}
+        </section>
+      </div>
+
+      <aside class="card style-sidebar">
+        <div class="section-head">
+          <h2>风格栏</h2>
+          <span class="text-link">{{ style_sidebar|length }} 个匹配结果</span>
+        </div>
+        <div class="style-sidebar-list">
+          {% for item in style_sidebar %}
+          <a href="/styles?style={{ item.name }}{% if style_search_query %}&q={{ style_search_query }}{% endif %}" class="style-sidebar-item{% if item.active %} active{% endif %}">
+            <strong>{{ item.name }}</strong>
+            <span>{{ item.image_count }} 张</span>
+          </a>
+          {% endfor %}
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const checkboxes = Array.from(document.querySelectorAll('.asset-checkbox'));
+      const selectAllButton = document.querySelector('[data-select-all]');
+      const downloadButton = document.querySelector('[data-download-selected]');
+
+      if (selectAllButton) {
+        selectAllButton.addEventListener('click', () => {
+          const shouldSelect = checkboxes.some((input) => !input.checked);
+          checkboxes.forEach((input) => {
+            input.checked = shouldSelect;
+          });
+        });
+      }
+
+      if (downloadButton) {
+        downloadButton.addEventListener('click', () => {
+          const selected = checkboxes.filter((input) => input.checked);
+          selected.forEach((input, index) => {
+            window.setTimeout(() => {
+              const link = document.createElement('a');
+              link.href = input.dataset.downloadUrl;
+              link.download = input.dataset.downloadName || '';
+              document.body.appendChild(link);
+              link.click();
+              link.remove();
+            }, index * 180);
+          });
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
