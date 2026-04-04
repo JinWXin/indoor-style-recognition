@@ -512,6 +512,13 @@ button.danger {
   justify-content: flex-end;
 }
 
+.ranking-filter-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 220px)) auto;
+  gap: 12px;
+  align-items: end;
+}
+
 .ranking-chart-card {
   overflow: hidden;
 }
@@ -687,6 +694,78 @@ button.danger {
   color: var(--muted);
 }
 
+.ranking-detail-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ranking-growth-list,
+.ranking-quality-list {
+  display: grid;
+  gap: 14px;
+}
+
+.ranking-growth-card,
+.ranking-quality-card,
+.ranking-preview-card {
+  padding: 16px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.growth-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(31, 107, 79, 0.12);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.growth-badge.negative {
+  background: rgba(158, 61, 46, 0.12);
+  color: var(--error);
+}
+
+.ranking-quality-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.mini-preview-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.mini-preview-image,
+.ranking-preview-image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+.ranking-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.ranking-preview-images {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -719,6 +798,10 @@ th {
 
   .ranking-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ranking-detail-grid {
+    grid-template-columns: 1fr;
   }
 
   .hero {
@@ -799,6 +882,10 @@ th {
   }
 
   .style-search-form {
+    grid-template-columns: 1fr;
+  }
+
+  .ranking-filter-form {
     grid-template-columns: 1fr;
   }
 
@@ -909,6 +996,15 @@ th {
     width: 62px;
   }
 
+  .ranking-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ranking-preview-images,
+  .mini-preview-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .thumb-image {
     height: 132px;
   }
@@ -924,6 +1020,11 @@ th {
 
 @media (max-width: 420px) {
   .gallery {
+    grid-template-columns: 1fr;
+  }
+
+  .ranking-preview-images,
+  .mini-preview-row {
     grid-template-columns: 1fr;
   }
 }

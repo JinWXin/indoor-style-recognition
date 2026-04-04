@@ -24,13 +24,35 @@
       <div>
         <p class="eyebrow">Upload Ranking</p>
         <h1>大家上传的照片风格排行</h1>
-        <p class="lead">按风格汇总大家提交的照片，统计口径包含「已归档反馈」和「待审核上传」。图表会按实时数据动态变化，方便一眼看出当前哪些风格最活跃。</p>
+        <p class="lead">这里会按风格统计大家上传的图片比例，并支持时间筛选、审核状态切换、增长榜、质量面板、代表图预览和 CSV 导出。</p>
       </div>
       <div class="ranking-hero-note">
-        <span class="pill">动态统计</span>
-        <span class="pill">公开可看</span>
-        <span class="pill">伪 3D 图表</span>
+        <span class="pill">{{ upload_ranking.window_label }}</span>
+        <span class="pill">{{ upload_ranking.status_label }}</span>
+        <a href="{{ upload_ranking.export_url }}" class="pill-link">导出 CSV</a>
       </div>
+    </section>
+
+    <section class="card">
+      <form action="/upload-ranking" method="get" class="ranking-filter-form">
+        <label>
+          时间范围
+          <select name="window">
+            {% for option in upload_ranking.window_options %}
+            <option value="{{ option.value }}" {% if option.value == upload_ranking.selected_window %}selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          审核状态
+          <select name="status">
+            {% for option in upload_ranking.status_options %}
+            <option value="{{ option.value }}" {% if option.value == upload_ranking.selected_status %}selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit">更新图表</button>
+      </form>
     </section>
 
     {% if upload_ranking.has_data %}
@@ -38,32 +60,32 @@
       <article class="card ranking-stat-card">
         <p class="eyebrow">Uploads</p>
         <p class="ranking-stat-value">{{ upload_ranking.total_uploads }}</p>
-        <p class="muted-text">累计纳入排行的上传记录</p>
+        <p class="muted-text">当前筛选下纳入排行的总上传量</p>
       </article>
       <article class="card ranking-stat-card">
         <p class="eyebrow">Approved</p>
         <p class="ranking-stat-value">{{ upload_ranking.approved_total }}</p>
-        <p class="muted-text">已经审核通过并沉淀的数据</p>
+        <p class="muted-text">已通过审核并归档进训练集</p>
       </article>
       <article class="card ranking-stat-card">
         <p class="eyebrow">Pending</p>
         <p class="ranking-stat-value">{{ upload_ranking.pending_total }}</p>
-        <p class="muted-text">仍在待审核队列中的上传</p>
+        <p class="muted-text">仍在审核队列中的图片</p>
       </article>
       <article class="card ranking-stat-card">
-        <p class="eyebrow">Styles</p>
-        <p class="ranking-stat-value">{{ upload_ranking.style_total }}</p>
-        <p class="muted-text">当前出现过上传记录的风格数</p>
+        <p class="eyebrow">Rejected</p>
+        <p class="ranking-stat-value">{{ upload_ranking.rejected_total }}</p>
+        <p class="muted-text">已驳回的上传图片</p>
       </article>
     </section>
 
     <section class="card ranking-chart-card">
       <div class="section-head">
         <div>
-          <h2>风格占比动态图表</h2>
-          <p class="muted-text">默认展示前 {{ upload_ranking.top_rows|length }} 名，剩余风格会合并为“其他”。</p>
+          <h2>风格占比 3D 动态图</h2>
+          <p class="muted-text">当前展示前 {{ upload_ranking.top_rows|length }} 名，剩余风格会自动合并为“其他”。</p>
         </div>
-        <span class="text-link">按占比从高到低排列</span>
+        <span class="text-link">{{ upload_ranking.window_label }} · {{ upload_ranking.status_label }}</span>
       </div>
 
       <div class="ranking-chart-shell">
@@ -87,12 +109,118 @@
       </div>
     </section>
 
+    <section class="grid ranking-detail-grid">
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h2>增长最快的风格</h2>
+            <p class="muted-text">{{ upload_ranking.compare_window_label }}</p>
+          </div>
+        </div>
+        {% if upload_ranking.growth_rows %}
+        <div class="ranking-growth-list">
+          {% for row in upload_ranking.growth_rows %}
+          <article class="ranking-growth-card">
+            <div class="section-head">
+              <div>
+                <strong>{{ row.style }}</strong>
+                <p class="muted-text">当前 {{ row.current_count }} · 更早 {{ row.previous_count }}</p>
+              </div>
+              <span class="growth-badge{% if row.delta < 0 %} negative{% endif %}">{{ row.delta_label }}</span>
+            </div>
+            <div class="mini-preview-row">
+              {% for image in row.preview_images %}
+              <a href="{{ image.url }}" target="_blank" rel="noopener noreferrer">
+                <img src="{{ image.url }}" alt="{{ image.name }}" class="mini-preview-image">
+              </a>
+              {% endfor %}
+            </div>
+          </article>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p>当前还不足以生成增长对比。</p>
+        {% endif %}
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h2>风格质量面板</h2>
+            <p class="muted-text">查看各风格的通过、待审核、驳回和图库原图数量。</p>
+          </div>
+        </div>
+        {% if upload_ranking.quality_rows %}
+        <div class="ranking-quality-list">
+          {% for row in upload_ranking.quality_rows %}
+          <article class="ranking-quality-card">
+            <div class="section-head">
+              <strong>{{ row.style }}</strong>
+              <span class="text-link">最近上传：{{ row.latest_uploaded_at }}</span>
+            </div>
+            <div class="ranking-quality-metrics">
+              <span class="pill">总上传 {{ row.total }}</span>
+              <span class="pill">已通过 {{ row.approved }}</span>
+              <span class="pill">待审核 {{ row.pending }}</span>
+              <span class="pill">已驳回 {{ row.rejected }}</span>
+              <span class="pill">图库原图 {{ row.library_image_count }}</span>
+            </div>
+            <div class="mini-preview-row">
+              {% for image in row.preview_images %}
+              <a href="{{ image.url }}" target="_blank" rel="noopener noreferrer">
+                <img src="{{ image.url }}" alt="{{ image.name }}" class="mini-preview-image">
+              </a>
+              {% endfor %}
+            </div>
+          </article>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p>当前还没有质量统计数据。</p>
+        {% endif %}
+      </section>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <div>
+          <h2>代表图预览</h2>
+          <p class="muted-text">公开显示当前排行前列风格的原图缩略图，点击可查看原图。</p>
+        </div>
+      </div>
+      {% if upload_ranking.preview_rows %}
+      <div class="ranking-preview-grid">
+        {% for row in upload_ranking.preview_rows %}
+        <article class="ranking-preview-card">
+          <div class="section-head">
+            <div>
+              <strong>{{ row.style }}</strong>
+              <p class="muted-text">{{ row.count }} 张 · {{ row.ratio_percent }}%</p>
+            </div>
+            <a href="/styles?style={{ row.style }}" class="text-button">查看该风格</a>
+          </div>
+          <div class="ranking-preview-images">
+            {% for image in row.preview_images %}
+            <a href="{{ image.url }}" target="_blank" rel="noopener noreferrer">
+              <img src="{{ image.url }}" alt="{{ image.name }}" class="ranking-preview-image">
+            </a>
+            {% endfor %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p>图库还没有代表图可以展示。</p>
+      {% endif %}
+    </section>
+
     <section class="card">
       <div class="section-head">
         <div>
           <h2>排行明细</h2>
-          <p class="muted-text">前 {{ upload_ranking.top_rows|length }} 名会进入图表，明细里可核对每个风格的具体数量与占比。</p>
+          <p class="muted-text">明细表支持导出，方便后续做汇报、汇总或论文分析。</p>
         </div>
+        <a href="{{ upload_ranking.export_url }}" class="text-button">下载当前筛选 CSV</a>
       </div>
       <div class="table-wrap">
         <table>
@@ -102,12 +230,15 @@
               <th>风格</th>
               <th>总数</th>
               <th>占比</th>
-              <th>已归档</th>
+              <th>已通过</th>
               <th>待审核</th>
+              <th>已驳回</th>
+              <th>图库原图</th>
+              <th>最近上传</th>
             </tr>
           </thead>
           <tbody>
-            {% for row in upload_ranking.top_rows %}
+            {% for row in upload_ranking.all_rows %}
             <tr>
               <td>{{ row.rank }}</td>
               <td>{{ row.style }}</td>
@@ -115,6 +246,9 @@
               <td>{{ row.ratio_percent }}%</td>
               <td>{{ row.approved_count }}</td>
               <td>{{ row.pending_count }}</td>
+              <td>{{ row.rejected_count }}</td>
+              <td>{{ row.library_image_count }}</td>
+              <td>{{ row.latest_uploaded_at }}</td>
             </tr>
             {% endfor %}
           </tbody>

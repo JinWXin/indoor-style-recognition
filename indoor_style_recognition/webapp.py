@@ -12,8 +12,8 @@ import shutil
 import csv
 from collections import Counter
 from typing import Iterable
-from datetime import datetime
-from io import BytesIO
+from datetime import datetime, timedelta
+from io import BytesIO, StringIO
 from pathlib import Path
 
 import pandas as pd
@@ -402,49 +402,120 @@ def load_pending_reviews_safe(limit=50):
         return []
 
 
-def build_upload_ranking_snapshot(top_n=12):
-    feedback_counts = Counter()
-    pending_counts = Counter()
+UPLOAD_RANKING_WINDOWS = {
+    'all': {'label': '全部时间', 'days': None},
+    '7d': {'label': '近 7 天', 'days': 7},
+    '30d': {'label': '近 30 天', 'days': 30},
+}
 
+UPLOAD_RANKING_STATUSES = {
+    'all': '全部上传',
+    'approved': '已通过',
+    'pending': '待审核',
+    'rejected': '已驳回',
+}
+
+
+def parse_iso_datetime(value):
+    text = (value or '').strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def list_style_preview_images(style_name, limit=3):
+    return [
+        {'url': item['url'], 'name': item['name']}
+        for item in list_style_gallery_items(style_name)[:limit]
+    ]
+
+
+def iter_upload_ranking_events():
     feedback_log_path = Path(PROCESSED_DIR) / 'feedback_log.csv'
     if feedback_log_path.exists():
         with open(feedback_log_path, 'r', encoding='utf-8', newline='') as handle:
             for row in csv.DictReader(handle):
                 style_name = (row.get('chosen_style') or '').strip()
-                if style_name:
-                    feedback_counts[style_name] += 1
+                activity_at = parse_iso_datetime(row.get('timestamp'))
+                if not style_name or activity_at is None:
+                    continue
+                yield {
+                    'style': style_name,
+                    'status': 'approved',
+                    'uploaded_at': activity_at,
+                    'activity_at': activity_at,
+                }
 
     pending_log_path = Path(PROCESSED_DIR) / 'review_queue' / 'pending_reviews.csv'
     if pending_log_path.exists():
         with open(pending_log_path, 'r', encoding='utf-8', newline='') as handle:
             for row in csv.DictReader(handle):
                 style_name = (row.get('chosen_style') or '').strip()
-                status = (row.get('status') or '').strip()
-                if style_name and status == 'pending':
-                    pending_counts[style_name] += 1
+                status = (row.get('status') or '').strip().lower()
+                uploaded_at = parse_iso_datetime(row.get('timestamp'))
+                reviewed_at = parse_iso_datetime(row.get('reviewed_at'))
+                if not style_name or status not in {'pending', 'rejected'}:
+                    continue
+                activity_at = reviewed_at if status == 'rejected' and reviewed_at is not None else uploaded_at
+                if activity_at is None:
+                    continue
+                yield {
+                    'style': style_name,
+                    'status': status,
+                    'uploaded_at': uploaded_at or activity_at,
+                    'activity_at': activity_at,
+                }
 
-    total_counts = feedback_counts + pending_counts
-    total_uploads = sum(total_counts.values())
+
+def build_upload_ranking_snapshot(top_n=12, window_key='all', status_filter='all'):
+    selected_window = window_key if window_key in UPLOAD_RANKING_WINDOWS else 'all'
+    selected_status = status_filter if status_filter in UPLOAD_RANKING_STATUSES else 'all'
+    window_days = UPLOAD_RANKING_WINDOWS[selected_window]['days']
+    now = datetime.now()
+    range_start = now - timedelta(days=window_days) if window_days else None
+    compare_days = window_days or 30
+    compare_start = now - timedelta(days=compare_days)
+    previous_start = compare_start - timedelta(days=compare_days)
+
+    all_events = list(iter_upload_ranking_events())
+    filtered_events = [
+        event for event in all_events
+        if (selected_status == 'all' or event['status'] == selected_status)
+        and (range_start is None or event['activity_at'] >= range_start)
+    ]
+
+    counts = Counter(event['style'] for event in filtered_events)
+    approved_counts = Counter(event['style'] for event in filtered_events if event['status'] == 'approved')
+    pending_counts = Counter(event['style'] for event in filtered_events if event['status'] == 'pending')
+    rejected_counts = Counter(event['style'] for event in filtered_events if event['status'] == 'rejected')
+    library_counts = {style_name: len(list_style_gallery_items(style_name)) for style_name in counts}
+
+    total_uploads = sum(counts.values())
     ranking_rows = []
-
-    for index, (style_name, count) in enumerate(total_counts.most_common(), start=1):
-        approved_count = feedback_counts.get(style_name, 0)
-        pending_count = pending_counts.get(style_name, 0)
+    for index, (style_name, count) in enumerate(counts.most_common(), start=1):
         ratio = (count / total_uploads) if total_uploads else 0.0
+        style_events = [event for event in filtered_events if event['style'] == style_name]
+        latest_uploaded_at = max((event['uploaded_at'] for event in style_events), default=None)
         ranking_rows.append({
             'rank': index,
             'style': style_name,
             'count': count,
             'ratio': ratio,
             'ratio_percent': round(ratio * 100, 2),
-            'approved_count': approved_count,
-            'pending_count': pending_count,
+            'approved_count': approved_counts.get(style_name, 0),
+            'pending_count': pending_counts.get(style_name, 0),
+            'rejected_count': rejected_counts.get(style_name, 0),
+            'library_image_count': library_counts.get(style_name, 0),
+            'latest_uploaded_at': latest_uploaded_at.strftime('%Y-%m-%d %H:%M') if latest_uploaded_at else '暂无',
+            'preview_images': list_style_preview_images(style_name, limit=3),
         })
 
     top_rows = ranking_rows[:top_n]
     other_count = sum(row['count'] for row in ranking_rows[top_n:])
     other_ratio = (other_count / total_uploads) if total_uploads else 0.0
-
     chart_rows = [
         {
             'style': row['style'],
@@ -454,7 +525,6 @@ def build_upload_ranking_snapshot(top_n=12):
         }
         for row in top_rows
     ]
-
     if other_count:
         chart_rows.append({
             'style': '其他',
@@ -463,14 +533,80 @@ def build_upload_ranking_snapshot(top_n=12):
             'ratio_percent': round(other_ratio * 100, 2),
         })
 
+    current_compare_events = [
+        event for event in all_events
+        if (selected_status == 'all' or event['status'] == selected_status)
+        and event['activity_at'] >= compare_start
+    ]
+    previous_compare_events = [
+        event for event in all_events
+        if (selected_status == 'all' or event['status'] == selected_status)
+        and previous_start <= event['activity_at'] < compare_start
+    ]
+    current_compare_counts = Counter(event['style'] for event in current_compare_events)
+    previous_compare_counts = Counter(event['style'] for event in previous_compare_events)
+    growth_rows = []
+    for style_name in set(current_compare_counts) | set(previous_compare_counts):
+        current_count = current_compare_counts.get(style_name, 0)
+        previous_count = previous_compare_counts.get(style_name, 0)
+        delta = current_count - previous_count
+        growth_rows.append({
+            'style': style_name,
+            'current_count': current_count,
+            'previous_count': previous_count,
+            'delta': delta,
+            'delta_label': f"{delta:+d}",
+            'preview_images': list_style_preview_images(style_name, limit=3),
+        })
+    growth_rows.sort(key=lambda row: (row['delta'], row['current_count'], row['style']), reverse=True)
+    growth_rows = growth_rows[:6]
+
+    quality_rows = []
+    for row in ranking_rows[:6]:
+        total_known = row['approved_count'] + row['pending_count'] + row['rejected_count']
+        quality_rows.append({
+            'style': row['style'],
+            'total': total_known,
+            'approved': row['approved_count'],
+            'pending': row['pending_count'],
+            'rejected': row['rejected_count'],
+            'library_image_count': row['library_image_count'],
+            'latest_uploaded_at': row['latest_uploaded_at'],
+            'preview_images': row['preview_images'],
+        })
+
+    preview_rows = []
+    for row in top_rows[:6]:
+        if not row['preview_images']:
+            continue
+        preview_rows.append({
+            'style': row['style'],
+            'count': row['count'],
+            'ratio_percent': row['ratio_percent'],
+            'preview_images': row['preview_images'],
+        })
+
     return {
-        'total_uploads': total_uploads,
-        'approved_total': sum(feedback_counts.values()),
-        'pending_total': sum(pending_counts.values()),
-        'style_total': len(total_counts),
-        'top_rows': top_rows,
-        'chart_rows': chart_rows,
         'has_data': total_uploads > 0,
+        'selected_window': selected_window,
+        'selected_status': selected_status,
+        'window_options': [{'value': key, 'label': item['label']} for key, item in UPLOAD_RANKING_WINDOWS.items()],
+        'status_options': [{'value': key, 'label': label} for key, label in UPLOAD_RANKING_STATUSES.items()],
+        'window_label': UPLOAD_RANKING_WINDOWS[selected_window]['label'],
+        'status_label': UPLOAD_RANKING_STATUSES[selected_status],
+        'total_uploads': total_uploads,
+        'approved_total': sum(approved_counts.values()),
+        'pending_total': sum(pending_counts.values()),
+        'rejected_total': sum(rejected_counts.values()),
+        'style_total': len(counts),
+        'top_rows': top_rows,
+        'all_rows': ranking_rows,
+        'chart_rows': chart_rows,
+        'growth_rows': growth_rows,
+        'quality_rows': quality_rows,
+        'preview_rows': preview_rows,
+        'compare_window_label': f"最近 {compare_days} 天 vs 更早 {compare_days} 天",
+        'export_url': f"/upload-ranking/export?window={selected_window}&status={selected_status}",
     }
 
 
@@ -733,15 +869,56 @@ async def style_gallery(
 
 
 @app.get('/upload-ranking', response_class=HTMLResponse)
-async def upload_ranking(request: Request):
+async def upload_ranking(request: Request, window: str = 'all', status: str = 'all'):
     return templates.TemplateResponse(
         request=request,
         name='upload_ranking.html',
         context=build_context(
             skip_predictor_probe=True,
             admin_logged_in=is_admin_authenticated(request),
-            upload_ranking=build_upload_ranking_snapshot(),
+            upload_ranking=build_upload_ranking_snapshot(window_key=window, status_filter=status),
         ),
+    )
+
+
+@app.get('/upload-ranking/export')
+async def export_upload_ranking(window: str = 'all', status: str = 'all'):
+    snapshot = build_upload_ranking_snapshot(top_n=2000, window_key=window, status_filter=status)
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        'rank',
+        'style',
+        'count',
+        'ratio_percent',
+        'approved_count',
+        'pending_count',
+        'rejected_count',
+        'library_image_count',
+        'latest_uploaded_at',
+        'window',
+        'status',
+    ])
+    for row in snapshot['all_rows']:
+        writer.writerow([
+            row['rank'],
+            row['style'],
+            row['count'],
+            row['ratio_percent'],
+            row['approved_count'],
+            row['pending_count'],
+            row['rejected_count'],
+            row['library_image_count'],
+            row['latest_uploaded_at'],
+            snapshot['window_label'],
+            snapshot['status_label'],
+        ])
+
+    filename = f"upload-ranking-{snapshot['selected_window']}-{snapshot['selected_status']}.csv"
+    return Response(
+        content='\ufeff' + output.getvalue(),
+        media_type='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
 
 
