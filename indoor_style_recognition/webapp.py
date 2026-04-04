@@ -857,7 +857,6 @@ async def index(request: Request):
         request=request,
         name='index.html',
         context=build_context(
-            skip_predictor_probe=True,
             admin_logged_in=is_admin_authenticated(request),
         ),
     )
