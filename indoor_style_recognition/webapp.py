@@ -9,6 +9,8 @@ import sys
 import threading
 import zipfile
 import shutil
+import csv
+from collections import Counter
 from typing import Iterable
 from datetime import datetime
 from io import BytesIO
@@ -400,6 +402,78 @@ def load_pending_reviews_safe(limit=50):
         return []
 
 
+def build_upload_ranking_snapshot(top_n=12):
+    feedback_counts = Counter()
+    pending_counts = Counter()
+
+    feedback_log_path = Path(PROCESSED_DIR) / 'feedback_log.csv'
+    if feedback_log_path.exists():
+        with open(feedback_log_path, 'r', encoding='utf-8', newline='') as handle:
+            for row in csv.DictReader(handle):
+                style_name = (row.get('chosen_style') or '').strip()
+                if style_name:
+                    feedback_counts[style_name] += 1
+
+    pending_log_path = Path(PROCESSED_DIR) / 'review_queue' / 'pending_reviews.csv'
+    if pending_log_path.exists():
+        with open(pending_log_path, 'r', encoding='utf-8', newline='') as handle:
+            for row in csv.DictReader(handle):
+                style_name = (row.get('chosen_style') or '').strip()
+                status = (row.get('status') or '').strip()
+                if style_name and status == 'pending':
+                    pending_counts[style_name] += 1
+
+    total_counts = feedback_counts + pending_counts
+    total_uploads = sum(total_counts.values())
+    ranking_rows = []
+
+    for index, (style_name, count) in enumerate(total_counts.most_common(), start=1):
+        approved_count = feedback_counts.get(style_name, 0)
+        pending_count = pending_counts.get(style_name, 0)
+        ratio = (count / total_uploads) if total_uploads else 0.0
+        ranking_rows.append({
+            'rank': index,
+            'style': style_name,
+            'count': count,
+            'ratio': ratio,
+            'ratio_percent': round(ratio * 100, 2),
+            'approved_count': approved_count,
+            'pending_count': pending_count,
+        })
+
+    top_rows = ranking_rows[:top_n]
+    other_count = sum(row['count'] for row in ranking_rows[top_n:])
+    other_ratio = (other_count / total_uploads) if total_uploads else 0.0
+
+    chart_rows = [
+        {
+            'style': row['style'],
+            'count': row['count'],
+            'height_ratio': (row['count'] / top_rows[0]['count']) if top_rows and top_rows[0]['count'] else 0,
+            'ratio_percent': row['ratio_percent'],
+        }
+        for row in top_rows
+    ]
+
+    if other_count:
+        chart_rows.append({
+            'style': '其他',
+            'count': other_count,
+            'height_ratio': (other_count / top_rows[0]['count']) if top_rows and top_rows[0]['count'] else 0,
+            'ratio_percent': round(other_ratio * 100, 2),
+        })
+
+    return {
+        'total_uploads': total_uploads,
+        'approved_total': sum(feedback_counts.values()),
+        'pending_total': sum(pending_counts.values()),
+        'style_total': len(total_counts),
+        'top_rows': top_rows,
+        'chart_rows': chart_rows,
+        'has_data': total_uploads > 0,
+    }
+
+
 def run_incremental_training_workflow():
     """后台执行数据处理与快速微调。"""
     try:
@@ -654,6 +728,19 @@ async def style_gallery(
             request=request,
             style_name=style.strip(),
             search_query=q.strip(),
+        ),
+    )
+
+
+@app.get('/upload-ranking', response_class=HTMLResponse)
+async def upload_ranking(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name='upload_ranking.html',
+        context=build_context(
+            skip_predictor_probe=True,
+            admin_logged_in=is_admin_authenticated(request),
+            upload_ranking=build_upload_ranking_snapshot(),
         ),
     )
 

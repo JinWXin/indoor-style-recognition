@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>上传风格排行</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="page">
+    <nav class="topnav">
+      <a href="/">识别台</a>
+      <a href="/styles">风格图库</a>
+      <a href="/upload-ranking" class="active">上传排行</a>
+      <a href="/training-status">训练状态</a>
+      {% if admin_logged_in %}
+      <a href="/admin/reviews">审核台</a>
+      {% else %}
+      <a href="/admin/login">管理员登录</a>
+      {% endif %}
+    </nav>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Upload Ranking</p>
+        <h1>大家上传的照片风格排行</h1>
+        <p class="lead">按风格汇总大家提交的照片，统计口径包含「已归档反馈」和「待审核上传」。图表会按实时数据动态变化，方便一眼看出当前哪些风格最活跃。</p>
+      </div>
+      <div class="ranking-hero-note">
+        <span class="pill">动态统计</span>
+        <span class="pill">公开可看</span>
+        <span class="pill">伪 3D 图表</span>
+      </div>
+    </section>
+
+    {% if upload_ranking.has_data %}
+    <section class="grid ranking-summary-grid">
+      <article class="card ranking-stat-card">
+        <p class="eyebrow">Uploads</p>
+        <p class="ranking-stat-value">{{ upload_ranking.total_uploads }}</p>
+        <p class="muted-text">累计纳入排行的上传记录</p>
+      </article>
+      <article class="card ranking-stat-card">
+        <p class="eyebrow">Approved</p>
+        <p class="ranking-stat-value">{{ upload_ranking.approved_total }}</p>
+        <p class="muted-text">已经审核通过并沉淀的数据</p>
+      </article>
+      <article class="card ranking-stat-card">
+        <p class="eyebrow">Pending</p>
+        <p class="ranking-stat-value">{{ upload_ranking.pending_total }}</p>
+        <p class="muted-text">仍在待审核队列中的上传</p>
+      </article>
+      <article class="card ranking-stat-card">
+        <p class="eyebrow">Styles</p>
+        <p class="ranking-stat-value">{{ upload_ranking.style_total }}</p>
+        <p class="muted-text">当前出现过上传记录的风格数</p>
+      </article>
+    </section>
+
+    <section class="card ranking-chart-card">
+      <div class="section-head">
+        <div>
+          <h2>风格占比动态图表</h2>
+          <p class="muted-text">默认展示前 {{ upload_ranking.top_rows|length }} 名，剩余风格会合并为“其他”。</p>
+        </div>
+        <span class="text-link">按占比从高到低排列</span>
+      </div>
+
+      <div class="ranking-chart-shell">
+        <div class="ranking-chart-grid" aria-hidden="true"></div>
+        <div class="ranking-chart" data-ranking-chart>
+          {% for row in upload_ranking.chart_rows %}
+          <article class="ranking-column">
+            <div class="ranking-column-meta">
+              <strong>{{ row.count }} 张</strong>
+              <span>{{ row.ratio_percent }}%</span>
+            </div>
+            <div class="ranking-bar-scene">
+              <div class="ranking-bar" data-height="{{ row.height_ratio }}">
+                <span class="ranking-bar-cap"></span>
+              </div>
+            </div>
+            <div class="ranking-column-label" title="{{ row.style }}">{{ row.style }}</div>
+          </article>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <div>
+          <h2>排行明细</h2>
+          <p class="muted-text">前 {{ upload_ranking.top_rows|length }} 名会进入图表，明细里可核对每个风格的具体数量与占比。</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>排名</th>
+              <th>风格</th>
+              <th>总数</th>
+              <th>占比</th>
+              <th>已归档</th>
+              <th>待审核</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in upload_ranking.top_rows %}
+            <tr>
+              <td>{{ row.rank }}</td>
+              <td>{{ row.style }}</td>
+              <td>{{ row.count }}</td>
+              <td>{{ row.ratio_percent }}%</td>
+              <td>{{ row.approved_count }}</td>
+              <td>{{ row.pending_count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% else %}
+    <section class="card ranking-empty-card">
+      <h2>还没有可统计的上传数据</h2>
+      <p>等用户开始上传并提交反馈后，这里会自动生成风格排行和占比图表。</p>
+    </section>
+    {% endif %}
+  </main>
+
+  <script>
+    (() => {
+      const bars = Array.from(document.querySelectorAll('.ranking-bar[data-height]'));
+      const maxHeight = 280;
+
+      window.requestAnimationFrame(() => {
+        bars.forEach((bar, index) => {
+          const ratio = Math.max(0.06, Number(bar.dataset.height || '0'));
+          const px = Math.max(22, Math.round(ratio * maxHeight));
+          window.setTimeout(() => {
+            bar.style.height = `${px}px`;
+            bar.classList.add('is-ready');
+          }, 90 * index);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
