@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>资产恢复</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="page">
+    <nav class="topnav">
+      <a href="/">识别台</a>
+      <a href="/styles">风格图库</a>
+      <a href="/upload-ranking">上传排行</a>
+      <a href="/training-status">训练状态</a>
+      <a href="/upload-assets" class="active">资产恢复</a>
+      <a href="/admin/reviews">审核台</a>
+    </nav>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Asset Restore</p>
+        <h1>管理员备用恢复入口</h1>
+        <p class="lead">这个页面只用于应急恢复 processed、model 和 excel 资产。日常网站运行已经优先使用服务器持久化目录，不需要反复来这里操作。</p>
+      </div>
+      <form action="/admin/logout" method="post">
+        <button class="secondary" type="submit">退出管理员</button>
+      </form>
+    </section>
+
+    {% if message %}
+    <section class="notice success">{{ message }}</section>
+    {% endif %}
+    {% if error %}
+    <section class="notice error">{{ error }}</section>
+    {% endif %}
+
+    <section class="card">
+      <div class="section-head">
+        <div>
+          <h2>上传云端资产</h2>
+          <p class="muted-text">分开上传 3 个 zip，全部上传完以后，再点一次“应用已上传资产并恢复识别”。</p>
+        </div>
+        <span class="text-link">当前状态：{{ asset_restore_status.status }}</span>
+      </div>
+
+      <div class="stack">
+        <form action="/upload-asset-bundle" method="post" enctype="multipart/form-data" class="stack">
+          <input type="hidden" name="bundle_kind" value="processed">
+          <label>
+            processed zip
+            <input type="file" name="bundle_file" accept=".zip" required>
+          </label>
+          <button type="submit">上传 processed zip{% if asset_uploads.processed_bundle %}（已上传）{% endif %}</button>
+        </form>
+
+        <form action="/upload-asset-bundle" method="post" enctype="multipart/form-data" class="stack">
+          <input type="hidden" name="bundle_kind" value="model">
+          <label>
+            model zip
+            <input type="file" name="bundle_file" accept=".zip" required>
+          </label>
+          <button type="submit">上传 model zip{% if asset_uploads.model_bundle %}（已上传）{% endif %}</button>
+        </form>
+
+        <form action="/upload-asset-bundle" method="post" enctype="multipart/form-data" class="stack">
+          <input type="hidden" name="bundle_kind" value="excel">
+          <label>
+            excel zip
+            <input type="file" name="bundle_file" accept=".zip" required>
+          </label>
+          <button type="submit">上传 excel zip{% if asset_uploads.excel_bundle %}（已上传）{% endif %}</button>
+        </form>
+      </div>
+
+      <form action="/upload-assets" method="post" class="stack asset-restore-form">
+        <label>
+          当前状态：
+          <div class="pill-list">
+            <span class="pill">processed {% if asset_uploads.processed_bundle %}已上传{% else %}未上传{% endif %}</span>
+            <span class="pill">model {% if asset_uploads.model_bundle %}已上传{% else %}未上传{% endif %}</span>
+            <span class="pill">excel {% if asset_uploads.excel_bundle %}已上传{% else %}未上传{% endif %}</span>
+          </div>
+        </label>
+        <button type="submit">应用已上传资产并恢复识别</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

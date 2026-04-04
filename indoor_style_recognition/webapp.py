@@ -837,12 +837,29 @@ def start_background_asset_restore():
         return True
 
 
+def render_asset_restore_page(request: Request, message='', error='', status_code=200):
+    return templates.TemplateResponse(
+        request=request,
+        name='asset_restore.html',
+        context=build_context(
+            skip_predictor_probe=True,
+            admin_logged_in=is_admin_authenticated(request),
+            message=message,
+            error=error,
+        ),
+        status_code=status_code,
+    )
+
+
 @app.get('/', response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse(
         request=request,
         name='index.html',
-        context=build_context(skip_predictor_probe=True),
+        context=build_context(
+            skip_predictor_probe=True,
+            admin_logged_in=is_admin_authenticated(request),
+        ),
     )
 
 
@@ -879,6 +896,14 @@ async def upload_ranking(request: Request, window: str = 'all', status: str = 'a
             upload_ranking=build_upload_ranking_snapshot(window_key=window, status_filter=status),
         ),
     )
+
+
+@app.get('/upload-assets', response_class=HTMLResponse)
+async def asset_restore_page(request: Request):
+    redirect = require_admin(request)
+    if redirect is not None:
+        return redirect
+    return render_asset_restore_page(request=request)
 
 
 @app.get('/upload-ranking/export')
@@ -1044,7 +1069,10 @@ async def admin_login(request: Request):
     return templates.TemplateResponse(
         request=request,
         name='admin_login.html',
-        context=build_context(skip_predictor_probe=True),
+        context=build_context(
+            skip_predictor_probe=True,
+            admin_logged_in=is_admin_authenticated(request),
+        ),
     )
 
 
@@ -1062,6 +1090,7 @@ async def admin_login_submit(
         name='admin_login.html',
         context=build_context(
             skip_predictor_probe=True,
+            admin_logged_in=is_admin_authenticated(request),
             error='管理员密码不正确，请重试。',
         ),
         status_code=401,
@@ -1102,7 +1131,8 @@ async def predict(
             request=request,
             name='index.html',
             context=build_context(
-                error='当前云端模型尚未准备好，网站已经上线，但还缺少 processed 数据或模型文件。'
+                error='当前云端模型尚未准备好，网站已经上线，但还缺少 processed 数据或模型文件。',
+                admin_logged_in=is_admin_authenticated(request),
             ),
         )
     suffix = Path(image_file.filename or 'upload.jpg').suffix or '.jpg'
@@ -1122,6 +1152,7 @@ async def predict(
         context=build_context(
             result=result,
             message='识别完成，请确认结果或提交正确风格。',
+            admin_logged_in=is_admin_authenticated(request),
         ),
     )
 
@@ -1147,14 +1178,20 @@ async def feedback(
         return templates.TemplateResponse(
             request=request,
             name='index.html',
-            context=build_context(error='当前模型尚未准备好，暂时无法提交识别反馈。'),
+            context=build_context(
+                error='当前模型尚未准备好，暂时无法提交识别反馈。',
+                admin_logged_in=is_admin_authenticated(request),
+            ),
         )
     image_path = Path(upload_path)
     if not image_path.exists():
         return templates.TemplateResponse(
             request=request,
             name='index.html',
-            context=build_context(error='上传的临时图片不存在，请重新上传。'),
+            context=build_context(
+                error='上传的临时图片不存在，请重新上传。',
+                admin_logged_in=is_admin_authenticated(request),
+            ),
         )
 
     predictions = [
@@ -1169,7 +1206,10 @@ async def feedback(
         return templates.TemplateResponse(
             request=request,
             name='index.html',
-            context=build_context(error='请选择正确风格，或者输入一个新的风格名称后再提交反馈。'),
+            context=build_context(
+                error='请选择正确风格，或者输入一个新的风格名称后再提交反馈。',
+                admin_logged_in=is_admin_authenticated(request),
+            ),
         )
 
     image = predictor.load_image(str(image_path))
@@ -1196,7 +1236,10 @@ async def feedback(
     return templates.TemplateResponse(
         request=request,
         name='index.html',
-        context=build_context(message=message),
+        context=build_context(
+            message=message,
+            admin_logged_in=is_admin_authenticated(request),
+        ),
     )
 
 
@@ -1299,7 +1342,11 @@ async def refresh_model(request: Request):
     return templates.TemplateResponse(
         request=request,
         name='index.html',
-        context=build_context(message=message, error=error),
+        context=build_context(
+            message=message,
+            error=error,
+            admin_logged_in=is_admin_authenticated(request),
+        ),
     )
 
 
@@ -1309,6 +1356,9 @@ async def upload_asset_bundle(
     bundle_kind: str = Form(...),
     bundle_file: UploadFile = File(...),
 ):
+    redirect = require_admin(request)
+    if redirect is not None:
+        return redirect
     try:
         bundle_map = {
             'processed': 'render_processed_bundle.zip',
@@ -1328,27 +1378,22 @@ async def upload_asset_bundle(
             'model': 'model zip',
             'excel': 'excel zip',
         }
-        return templates.TemplateResponse(
+        return render_asset_restore_page(
             request=request,
-            name='index.html',
-            context=build_context(
-                skip_predictor_probe=True,
-                message=f'{label_map[bundle_kind]} 已上传到云端暂存区。',
-            ),
+            message=f'{label_map[bundle_kind]} 已上传到云端暂存区。',
         )
     except Exception as exc:
-        return templates.TemplateResponse(
+        return render_asset_restore_page(
             request=request,
-            name='index.html',
-            context=build_context(
-                skip_predictor_probe=True,
-                error=f'资产上传失败：{exc}',
-            ),
+            error=f'资产上传失败：{exc}',
         )
 
 
 @app.post('/upload-assets', response_class=HTMLResponse)
 async def upload_assets(request: Request):
+    redirect = require_admin(request)
+    if redirect is not None:
+        return redirect
     try:
         started = start_background_asset_restore()
         message = (
@@ -1356,19 +1401,14 @@ async def upload_assets(request: Request):
             if started else
             '云端资产恢复任务已经在后台运行，请稍候刷新页面查看结果。'
         )
-        return templates.TemplateResponse(
+        return render_asset_restore_page(
             request=request,
-            name='index.html',
-            context=build_context(
-                skip_predictor_probe=True,
-                message=message,
-            ),
+            message=message,
         )
     except Exception as exc:
-        return templates.TemplateResponse(
+        return render_asset_restore_page(
             request=request,
-            name='index.html',
-            context=build_context(error=f'云端资产上传失败：{exc}'),
+            error=f'云端资产上传失败：{exc}',
         )
 
 

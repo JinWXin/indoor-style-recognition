@@ -140,6 +140,25 @@ button.secondary {
   color: var(--accent);
 }
 
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 12px 18px;
+  border-radius: 999px;
+  text-decoration: none;
+}
+
+.button-link.secondary-link {
+  background: #e7efe9;
+  color: var(--accent);
+}
+
+.hero-actions {
+  justify-content: flex-end;
+}
+
 .quick-action {
   min-height: 52px;
 }
@@ -410,6 +429,10 @@ button.danger {
 }
 
 .admin-panel {
+  margin-top: 18px;
+}
+
+.asset-restore-form {
   margin-top: 18px;
 }
 
