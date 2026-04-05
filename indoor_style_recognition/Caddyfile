@@ -1,0 +1,12 @@
+jinwxin.com, www.jinwxin.com {
+  encode gzip zstd
+
+  @health path /healthz
+  handle @health {
+    reverse_proxy indoor-style-recognition:8000
+  }
+
+  handle {
+    reverse_proxy indoor-style-recognition:8000
+  }
+}

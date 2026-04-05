@@ -1,0 +1,31 @@
+services:
+  indoor-style-recognition:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: indoor-style-recognition
+    restart: unless-stopped
+    env_file:
+      - .env.aliyun
+    volumes:
+      - ./storage:/app/storage
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: indoor-style-caddy
+    restart: unless-stopped
+    depends_on:
+      - indoor-style-recognition
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
