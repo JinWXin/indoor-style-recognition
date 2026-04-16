@@ -67,6 +67,18 @@
     {% if error %}
     <section class="notice error">{{ error }}</section>
     {% endif %}
+    {% if training_snapshot.training_is_running %}
+    <section class="notice training-notice">
+      当前正在训练新模型：{{ training_snapshot.training_status.detail }}
+      {% if training_snapshot.training_progress_percent is not none %}
+      进度 {{ training_snapshot.training_progress_percent }}%
+      {% endif %}
+      {% if training_snapshot.training_status.current_epoch and training_snapshot.training_status.total_epochs %}
+      ，第 {{ training_snapshot.training_status.current_epoch }}/{{ training_snapshot.training_status.total_epochs }} 轮。
+      {% endif %}
+      <a href="/training-status" class="text-link">查看训练状态</a>
+    </section>
+    {% endif %}
     {% if predictor_is_stale %}
     <section class="notice error">
       当前网页正在使用旧模型继续提供识别服务。原因：{{ predictor_stale_reason }}

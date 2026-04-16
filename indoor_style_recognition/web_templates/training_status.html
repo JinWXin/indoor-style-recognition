@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>训练状态</title>
-  {% if training_snapshot.training_status.status == 'running' %}
+  {% if training_snapshot.training_is_running %}
   <meta http-equiv="refresh" content="5">
   {% endif %}
   <link rel="stylesheet" href="/static/style.css">
@@ -15,6 +15,7 @@
       <a href="/">识别台</a>
       <a href="/styles">风格图库</a>
       <a href="/upload-ranking">上传排行</a>
+      <a href="/trend-analysis">趋势分析</a>
       <a href="/training-status" class="active">训练状态</a>
     </nav>
 
@@ -32,13 +33,35 @@
     </section>
     {% endif %}
 
+    {% if message %}
+    <section class="notice success">{{ message }}</section>
+    {% endif %}
+
+    {% if error %}
+    <section class="notice error">{{ error }}</section>
+    {% endif %}
+
     <section class="grid status-grid">
       <article class="card stat-card">
         <h2>训练任务</h2>
         <p class="stat-value">{{ training_snapshot.training_status.status }}</p>
         <p>{{ training_snapshot.training_status.detail }}</p>
         <p>更新时间：{{ training_snapshot.training_status.updated_at or '未记录' }}</p>
-        {% if training_snapshot.training_status.status == 'running' %}
+        {% if training_snapshot.training_progress_percent is not none %}
+        <div class="training-progress-block">
+          <div class="training-progress-head">
+            <strong>总体进度</strong>
+            <span>{{ training_snapshot.training_progress_percent }}%</span>
+          </div>
+          <div class="training-progress-bar">
+            <span class="training-progress-fill" style="width: {{ training_snapshot.training_progress_percent }}%;"></span>
+          </div>
+        </div>
+        {% endif %}
+        {% if training_snapshot.training_status.current_epoch and training_snapshot.training_status.total_epochs %}
+        <p>当前轮次：{{ training_snapshot.training_status.current_epoch }} / {{ training_snapshot.training_status.total_epochs }}</p>
+        {% endif %}
+        {% if training_snapshot.training_is_running %}
         <p>页面每 5 秒自动刷新一次。</p>
         {% endif %}
       </article>
@@ -62,6 +85,14 @@
         <p>总反馈数</p>
         <p>纠错数：{{ training_snapshot.feedback_wrong_total }}</p>
       </article>
+    </section>
+
+    <section class="card">
+      <h2>当前训练路径</h2>
+      <p><strong>Excel：</strong>{{ training_snapshot.excel_path }}</p>
+      <p><strong>训练图库：</strong>{{ training_snapshot.train_image_root }}</p>
+      <p><strong>processed：</strong>{{ training_snapshot.processed_dir }}</p>
+      <p><strong>当前模型：</strong>{{ training_snapshot.checkpoint_path }}</p>
     </section>
 
     <section class="card">

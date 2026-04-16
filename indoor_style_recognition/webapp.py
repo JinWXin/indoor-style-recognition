@@ -485,11 +485,22 @@ def build_style_gallery_context(request: Request, style_name='', search_query=''
     )
 
 
-def write_training_status(status, detail=''):
+def write_training_status(
+    status,
+    detail='',
+    progress=None,
+    stage='',
+    current_epoch=None,
+    total_epochs=None,
+):
     payload = {
         'status': status,
         'detail': detail,
         'updated_at': __import__('datetime').datetime.now().isoformat(timespec='seconds'),
+        'progress': progress,
+        'stage': stage,
+        'current_epoch': current_epoch,
+        'total_epochs': total_epochs,
     }
     TRAINING_STATUS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
 
@@ -515,12 +526,42 @@ def load_asset_restore_status():
 
 def load_training_status():
     if TRAINING_STATUS_PATH.exists():
-        return json.loads(TRAINING_STATUS_PATH.read_text(encoding='utf-8'))
+        payload = json.loads(TRAINING_STATUS_PATH.read_text(encoding='utf-8'))
+        payload.setdefault('progress', None)
+        payload.setdefault('stage', '')
+        payload.setdefault('current_epoch', None)
+        payload.setdefault('total_epochs', None)
+        return payload
     return {
         'status': 'idle',
         'detail': '尚未记录训练任务。',
         'updated_at': '',
+        'progress': None,
+        'stage': '',
+        'current_epoch': None,
+        'total_epochs': None,
     }
+
+
+def make_training_status_callback(progress_start, progress_span):
+    """把训练器子进度换算成网页可展示的整体进度。"""
+    def callback(detail, progress=None, stage='', current_epoch=None, total_epochs=None):
+        overall_progress = None
+        if progress is not None:
+            normalized = max(0.0, min(100.0, float(progress)))
+            overall_progress = int(round(progress_start + (progress_span * normalized / 100.0)))
+            overall_progress = min(99, max(0, overall_progress))
+
+        write_training_status(
+            'running',
+            detail,
+            progress=overall_progress,
+            stage=stage,
+            current_epoch=current_epoch,
+            total_epochs=total_epochs,
+        )
+
+    return callback
 
 
 def load_recent_feedback_safe(limit=20):
@@ -1219,19 +1260,43 @@ def build_trend_analysis_snapshot(window_key='30d'):
 def run_incremental_training_workflow():
     """后台执行数据处理与快速微调。"""
     try:
-        write_training_status('running', '正在重建数据集...')
+        write_training_status('running', '正在重建数据集...', progress=8, stage='dataset')
         processor = DataProcessor()
         processor.process_data()
 
-        write_training_status('running', '正在基于最近反馈做快速微调...')
-        trainer = Trainer(num_workers_override=0)
+        write_training_status('running', '正在基于最近反馈做快速微调...', progress=20, stage='training')
+        trainer = Trainer(
+            num_workers_override=0,
+            progress_callback=make_training_status_callback(progress_start=20, progress_span=72),
+        )
         trainer.run_incremental()
 
-        write_training_status('running', '正在重新加载最新模型...')
+        write_training_status('running', '正在重新加载最新模型...', progress=96, stage='switching')
         refresh_predictor()
-        write_training_status('completed', '后台快速微调已完成，最新模型已加载。')
+        write_training_status('completed', '后台快速微调已完成，最新模型已加载。', progress=100, stage='completed')
     except Exception as e:
-        write_training_status('failed', f'后台训练失败: {e}')
+        write_training_status('failed', f'后台训练失败: {e}', stage='failed')
+
+
+def run_full_training_workflow():
+    """后台执行全量数据处理与完整重训。"""
+    try:
+        write_training_status('running', '正在根据当前图库重建完整训练集...', progress=8, stage='dataset')
+        processor = DataProcessor()
+        processor.process_data()
+
+        write_training_status('running', '正在执行完整模型训练...', progress=18, stage='training')
+        trainer = Trainer(
+            num_workers_override=0,
+            progress_callback=make_training_status_callback(progress_start=18, progress_span=76),
+        )
+        trainer.run()
+
+        write_training_status('running', '正在切换到最新模型...', progress=96, stage='switching')
+        refresh_predictor()
+        write_training_status('completed', '完整重训已完成，网站已切换到最新模型。', progress=100, stage='completed')
+    except Exception as e:
+        write_training_status('failed', f'完整重训失败: {e}', stage='failed')
 
 
 def start_background_incremental_training():
@@ -1244,6 +1309,22 @@ def start_background_incremental_training():
         _training_thread = threading.Thread(
             target=run_incremental_training_workflow,
             name='style-incremental-training',
+            daemon=True,
+        )
+        _training_thread.start()
+        return True
+
+
+def start_background_full_training():
+    """如果当前没有训练任务，则启动一个后台全量重训线程。"""
+    global _training_thread
+    with _training_lock:
+        if _training_thread is not None and _training_thread.is_alive():
+            return False
+
+        _training_thread = threading.Thread(
+            target=run_full_training_workflow,
+            name='style-full-training',
             daemon=True,
         )
         _training_thread.start()
@@ -1266,7 +1347,18 @@ def build_training_snapshot():
         'feedback_total': len(load_recent_feedback_safe(limit=100000)),
         'feedback_wrong_total': len(load_recent_wrong_feedback_safe(limit=100000)),
         'snapshot_error': '',
+        'excel_path': str(Path(EXCEL_PATH)),
+        'train_image_root': str(Path(TRAIN_IMAGE_ROOT)),
+        'processed_dir': str(Path(PROCESSED_DIR)),
+        'checkpoint_path': str(model_path),
     }
+
+    training_status = snapshot['training_status']
+    progress_value = training_status.get('progress')
+    snapshot['training_progress_percent'] = (
+        int(progress_value) if isinstance(progress_value, (int, float)) else None
+    )
+    snapshot['training_is_running'] = training_status.get('status') == 'running'
 
     if processed_path.exists():
         try:
@@ -2130,12 +2222,43 @@ async def upload_assets(request: Request):
         )
 
 
+@app.post('/training/start', response_class=HTMLResponse)
+async def start_training(
+    request: Request,
+    training_mode: str = Form('full'),
+):
+    redirect = require_admin(request)
+    if redirect is not None:
+        return redirect
+
+    try:
+        if training_mode == 'incremental':
+            start_background_incremental_training()
+        else:
+            start_background_full_training()
+
+        return RedirectResponse(url='/admin/reviews', status_code=303)
+    except Exception as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name='admin_reviews.html',
+            context=build_context(
+                skip_predictor_probe=True,
+                admin_logged_in=True,
+                error=f'启动训练失败：{exc}',
+            ),
+        )
+
+
 @app.get('/training-status', response_class=HTMLResponse)
 async def training_status(request: Request):
     return templates.TemplateResponse(
         request=request,
         name='training_status.html',
-        context=build_context(skip_predictor_probe=True),
+        context=build_context(
+            skip_predictor_probe=True,
+            admin_logged_in=is_admin_authenticated(request),
+        ),
     )
 
 

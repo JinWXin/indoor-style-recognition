@@ -28,13 +28,26 @@ from data_processor import DataProcessor
 
 
 class Trainer:
-    def __init__(self, num_workers_override=None):
+    def __init__(self, num_workers_override=None, progress_callback=None):
         self.device = torch.device(DEVICE if torch.cuda.is_available() else 'cpu')
         self.checkpoint_path = Path(CHECKPOINT_PATH)
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         self.num_workers = NUM_WORKERS if num_workers_override is None else num_workers_override
+        self.progress_callback = progress_callback
         
         print(f"使用设备: {self.device}")
+
+    def report_progress(self, detail, progress=None, stage='', current_epoch=None, total_epochs=None):
+        """向外部回写训练进度，供网页实时显示。"""
+        if not self.progress_callback:
+            return
+        self.progress_callback(
+            detail=detail,
+            progress=progress,
+            stage=stage,
+            current_epoch=current_epoch,
+            total_epochs=total_epochs,
+        )
     
     def load_processed_data(self):
         """加载处理后的数据"""
@@ -207,13 +220,34 @@ class Trainer:
         
         best_val_loss = float('inf')
         patience_counter = 0
+        self.report_progress(
+            detail=f'训练准备完成，共 {num_epochs} 轮。',
+            progress=0,
+            stage='training',
+            current_epoch=0,
+            total_epochs=num_epochs,
+        )
         
         for epoch in range(num_epochs):
             print(f"\nEpoch {epoch+1}/{num_epochs}")
+            self.report_progress(
+                detail=f'第 {epoch+1}/{num_epochs} 轮：正在训练...',
+                progress=(epoch / num_epochs) * 100,
+                stage='training',
+                current_epoch=epoch + 1,
+                total_epochs=num_epochs,
+            )
             
             # 训练
             train_loss = self.train_epoch(model, train_loader, optimizer, criterion)
             print(f"训练损失: {train_loss:.4f}")
+            self.report_progress(
+                detail=f'第 {epoch+1}/{num_epochs} 轮：正在验证...',
+                progress=((epoch + 0.5) / num_epochs) * 100,
+                stage='validation',
+                current_epoch=epoch + 1,
+                total_epochs=num_epochs,
+            )
             
             # 验证
             val_loss = self.evaluate(model, val_loader, criterion)
@@ -223,17 +257,43 @@ class Trainer:
             scheduler.step(val_loss)
             
             # 早停
-            if val_loss < best_val_loss:
+            improved = val_loss < best_val_loss
+            if improved:
                 best_val_loss = val_loss
                 patience_counter = 0
                 
                 # 保存最佳模型
                 torch.save(model.state_dict(), self.checkpoint_path)
                 print(f"模型已保存到 {self.checkpoint_path}")
+                detail = (
+                    f'第 {epoch+1}/{num_epochs} 轮完成，'
+                    f'训练损失 {train_loss:.4f}，验证损失 {val_loss:.4f}，最佳模型已更新。'
+                )
             else:
                 patience_counter += 1
+                detail = (
+                    f'第 {epoch+1}/{num_epochs} 轮完成，'
+                    f'训练损失 {train_loss:.4f}，验证损失 {val_loss:.4f}。'
+                )
+
+            self.report_progress(
+                detail=detail,
+                progress=((epoch + 1) / num_epochs) * 100,
+                stage='epoch_completed',
+                current_epoch=epoch + 1,
+                total_epochs=num_epochs,
+            )
+
+            if not improved:
                 if patience_counter >= patience:
                     print(f"早停：验证损失 {patience} 个 epoch 未改进")
+                    self.report_progress(
+                        detail=f'训练提前停止：连续 {patience} 轮验证损失未改进，已在第 {epoch+1} 轮结束。',
+                        progress=((epoch + 1) / num_epochs) * 100,
+                        stage='early_stop',
+                        current_epoch=epoch + 1,
+                        total_epochs=num_epochs,
+                    )
                     break
         
         return model

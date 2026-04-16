@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>待审核反馈管理台</title>
+  {% if training_snapshot.training_is_running %}
+  <meta http-equiv="refresh" content="5">
+  {% endif %}
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -35,6 +38,55 @@
     {% if error %}
     <section class="notice error">{{ error }}</section>
     {% endif %}
+
+    <section class="card">
+      <div class="section-head">
+        <div>
+          <h2>训练控制台</h2>
+          <p class="muted-text">训练会使用服务器当前 Excel 和图库；完成后网站会自动切换到新模型。</p>
+        </div>
+      </div>
+      <div class="training-action-grid">
+        <article class="training-action-card">
+          <p class="eyebrow">Quick Tune</p>
+          <h3>快速微调</h3>
+          <p class="muted-text">适合少量新增反馈、少量审核通过图片，速度更快，对当前模型做增量修正。</p>
+          <form action="/training/start" method="post" class="inline-actions">
+            <input type="hidden" name="training_mode" value="incremental">
+            <button type="submit" class="secondary">启动快速微调</button>
+          </form>
+        </article>
+        <article class="training-action-card">
+          <p class="eyebrow">Full Retrain</p>
+          <h3>完整重训</h3>
+          <p class="muted-text">适合新图较多、风格定义变更或新增风格时使用，会按当前完整图库重新训练。</p>
+          <form action="/training/start" method="post" class="inline-actions">
+            <input type="hidden" name="training_mode" value="full">
+            <button type="submit">启动完整重训</button>
+          </form>
+        </article>
+      </div>
+      <p><strong>当前状态：</strong>{{ training_snapshot.training_status.status }}</p>
+      <p>{{ training_snapshot.training_status.detail }}</p>
+      {% if training_snapshot.training_progress_percent is not none %}
+      <div class="training-progress-block">
+        <div class="training-progress-head">
+          <strong>训练进度</strong>
+          <span>{{ training_snapshot.training_progress_percent }}%</span>
+        </div>
+        <div class="training-progress-bar">
+          <span class="training-progress-fill" style="width: {{ training_snapshot.training_progress_percent }}%;"></span>
+        </div>
+      </div>
+      {% endif %}
+      {% if training_snapshot.training_status.current_epoch and training_snapshot.training_status.total_epochs %}
+      <p>当前轮次：{{ training_snapshot.training_status.current_epoch }} / {{ training_snapshot.training_status.total_epochs }}</p>
+      {% endif %}
+      <p>更新时间：{{ training_snapshot.training_status.updated_at or '未记录' }}</p>
+      {% if training_snapshot.training_is_running %}
+      <p class="muted-text">训练进行中，页面每 5 秒自动刷新一次。</p>
+      {% endif %}
+    </section>
 
     <section class="card">
       <div class="section-head">
