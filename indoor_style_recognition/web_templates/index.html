@@ -12,25 +12,52 @@
       <a href="/">识别台</a>
       <a href="/styles">风格图库</a>
       <a href="/upload-ranking">上传排行</a>
+      <a href="/trend-analysis">趋势分析</a>
       <a href="/training-status">训练状态</a>
     </nav>
 
-    <section class="hero">
-      <div>
-        <p class="eyebrow">FastAPI Collaboration</p>
-        <h1>室内风格协作标注平台</h1>
-        <p class="lead">上传图片，查看 Top3，相互纠错；先进入待审核队列，确认无误后再沉淀进训练图库。</p>
+    <section class="hero hero-home">
+      <div class="hero-home-copy">
+        <p class="eyebrow">Style Intelligence Workflow</p>
+        <h1>把上传、纠错、审核和趋势分析放进同一个风格识别工作台</h1>
+        <p class="lead">这里不是单纯的上传页，而是一套持续生长的风格数据闭环。前台负责识别与纠错，后台负责审核与沉淀，趋势页负责把最近的风格变化直接读出来。</p>
+        <div class="hero-home-tags">
+          <span class="pill">在线风格 {{ styles|length }} 个</span>
+          <span class="pill">累计反馈 {{ training_snapshot.feedback_total }} 次</span>
+          <span class="pill">{{ '模型在线' if predictor_available else '等待资产恢复' }}</span>
+        </div>
       </div>
-      <div class="inline-actions hero-actions">
-        <form action="/refresh-model" method="post">
-          <button class="secondary" type="submit">重新加载模型</button>
-        </form>
-        {% if admin_logged_in %}
-        <a href="/upload-assets" class="button-link secondary-link">资产恢复</a>
-        <a href="/admin/reviews" class="button-link secondary-link">审核台</a>
-        {% else %}
-        <a href="/admin/login" class="button-link secondary-link">管理员入口</a>
-        {% endif %}
+      <div class="hero-home-panel">
+        <div class="hero-home-panel-copy">
+          <p class="eyebrow">Workflow Pulse</p>
+          <h2>从上传到趋势洞察，首页先给出全局状态。</h2>
+          <p class="muted-text">如果你现在要开始使用，最自然的路径就是上传图片、提交反馈，然后去趋势分析页看最近哪些风格在升温、哪些风格更容易被纠错。</p>
+        </div>
+        <div class="hero-home-metrics">
+          <article class="hero-home-metric">
+            <span>当前模型</span>
+            <strong>{{ '可识别' if predictor_available else '未就绪' }}</strong>
+          </article>
+          <article class="hero-home-metric">
+            <span>最近待审</span>
+            <strong>{{ pending_reviews|length }}</strong>
+          </article>
+          <article class="hero-home-metric">
+            <span>错误样本池</span>
+            <strong>{{ recent_wrong_feedback|length }}</strong>
+          </article>
+        </div>
+        <div class="inline-actions hero-actions">
+          <form action="/refresh-model" method="post">
+            <button class="secondary" type="submit">重新加载模型</button>
+          </form>
+          {% if admin_logged_in %}
+          <a href="/upload-assets" class="button-link secondary-link">资产恢复</a>
+          <a href="/admin/reviews" class="button-link secondary-link">审核台</a>
+          {% else %}
+          <a href="/admin/login" class="button-link secondary-link">管理员入口</a>
+          {% endif %}
+        </div>
       </div>
     </section>
 
@@ -64,26 +91,106 @@
       </button>
     </section>
 
-    <section class="grid">
-      <div class="card" id="upload-card">
-        <h2>上传识别</h2>
+    <section class="grid home-primary-grid">
+      <div class="card home-upload-card" id="upload-card">
+        <div class="section-head">
+          <div>
+            <h2>上传识别</h2>
+            <p class="muted-text">把现场图片快速送进识别流程，立即拿到 Top3 并开始反馈。</p>
+          </div>
+          <span class="home-section-kicker">Step 01</span>
+        </div>
         <form action="/predict" method="post" enctype="multipart/form-data" class="stack">
           <input id="image-file-input" type="file" name="image_file" accept="image/*" capture="environment" required {% if not predictor_available %}disabled{% endif %}>
           <button type="submit" {% if not predictor_available %}disabled{% endif %}>上传并识别</button>
         </form>
+        <div class="hero-home-tags home-card-tags">
+          <span class="pill">手机拍照</span>
+          <span class="pill">Top3 判断</span>
+          <span class="pill">进入审核闭环</span>
+        </div>
         {% if not predictor_available %}
         <p>等 Excel、processed 文件和模型上传到 Render 磁盘后，这里就会恢复可用。</p>
         {% endif %}
       </div>
 
-      <div class="card">
-        <h2>风格列表</h2>
+      <div class="card home-style-card">
+        <div class="section-head">
+          <div>
+            <h2>风格列表</h2>
+            <p class="muted-text">当前可浏览的风格入口。点进去可以查看原图、说明和图库内容。</p>
+          </div>
+          <span class="home-section-kicker">{{ styles|length }} Styles</span>
+        </div>
         <div class="pill-list">
           {% for style in styles %}
           <a href="/styles?style={{ style }}" class="pill-link">{{ style }}</a>
           {% endfor %}
         </div>
       </div>
+    </section>
+
+    <section class="card home-section-card">
+      <div class="section-head">
+        <div>
+          <h2>趋势分析速览</h2>
+          <p class="muted-text">基于最近 30 天的反馈数据，快速看热门风格、人工纠错压力和活跃时段。</p>
+        </div>
+        <a href="/trend-analysis" class="text-button">查看完整趋势分析</a>
+      </div>
+      {% if trend_analysis_preview and trend_analysis_preview.has_data %}
+      <section class="home-trend-showcase">
+        <div class="home-trend-overview">
+          <p class="eyebrow">Trend Snapshot</p>
+          <h3>{{ trend_analysis_preview.headline }}</h3>
+          <p class="muted-text">{{ trend_analysis_preview.summary }}</p>
+          {% if trend_analysis_preview.signal_ribbon %}
+          <div class="trend-signal-ribbon">
+            {% for item in trend_analysis_preview.signal_ribbon %}
+            <article class="trend-signal-pill {{ item.tone }}">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+              <em>{{ item.meta }}</em>
+            </article>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+
+        <div class="home-trend-strip">
+          <div class="home-trend-strip-head">
+            <strong>最近走势</strong>
+            <span>{{ trend_analysis_preview.window_label }}</span>
+          </div>
+          <div class="home-trend-bars">
+            {% for row in trend_analysis_preview.compact_timeline_rows %}
+            <article class="home-trend-column" title="{{ row.full_label }} · {{ row.total }} 次反馈">
+              <div class="home-trend-bar-shell">
+                {% if row.total > 0 %}
+                <span class="home-trend-bar{% if row.is_peak %} peak{% endif %}" style="height: {{ row.height_percent }}%;"></span>
+                {% else %}
+                <span class="home-trend-bar home-trend-bar-empty"></span>
+                {% endif %}
+              </div>
+              <span class="home-trend-label">{{ row.label }}</span>
+            </article>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <div class="trend-preview-grid">
+        {% for item in trend_analysis_preview.preview_stats %}
+        <article class="trend-preview-card">
+          <p class="eyebrow">{{ item.label }}</p>
+          <p class="trend-metric-value">{{ item.value }}</p>
+          <p class="muted-text">{{ item.meta }}</p>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p>等用户开始上传和反馈后，这里会自动显示最近一段时间的趋势速览。</p>
+      {% endif %}
     </section>
 
     {% if result %}
@@ -150,9 +257,12 @@
     </section>
     {% endif %}
 
-    <section class="card">
+    <section class="card home-section-card">
       <div class="section-head">
-        <h2>最近错误样本池</h2>
+        <div>
+          <h2>最近错误样本池</h2>
+          <p class="muted-text">这部分更适合判断模型最近容易偏向哪里，也是训练回灌的优先观察区。</p>
+        </div>
         <a href="/training-status" class="text-link">查看训练状态</a>
       </div>
       {% if recent_wrong_feedback %}
@@ -175,8 +285,13 @@
       {% endif %}
     </section>
 
-    <section class="card">
-      <h2>最近反馈</h2>
+    <section class="card home-section-card">
+      <div class="section-head">
+        <div>
+          <h2>最近反馈</h2>
+          <p class="muted-text">按时间追踪刚发生的归档结果，方便快速复盘当前标注和纠错质量。</p>
+        </div>
+      </div>
       {% if recent_feedback %}
       <div class="table-wrap">
         <table>

@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>趋势分析</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="page">
+    <nav class="topnav">
+      <a href="/">识别台</a>
+      <a href="/styles">风格图库</a>
+      <a href="/upload-ranking">上传排行</a>
+      <a href="/trend-analysis" class="active">趋势分析</a>
+      <a href="/training-status">训练状态</a>
+      {% if admin_logged_in %}
+      <a href="/admin/reviews">审核台</a>
+      {% else %}
+      <a href="/admin/login">管理员登录</a>
+      {% endif %}
+    </nav>
+
+    <section class="hero trend-hero">
+      <div class="trend-hero-copy">
+        <p class="eyebrow">Trend Analysis</p>
+        <h1>最近的风格偏好，正在这里被压缩成一张可读的信号面板。</h1>
+        <p class="lead">趋势页不只是把数据堆出来，而是把上传、审核和纠错的动态合并成一个持续更新的风格气候图。你能在这里同时看见主流风格、升温趋势和模型偏差压力。</p>
+        <div class="trend-hero-tags">
+          <span class="pill">{{ trend_analysis.window_label }}</span>
+          <span class="pill">{{ trend_analysis.bucket_label }}</span>
+          {% if trend_analysis.active_days %}
+          <span class="pill">{{ trend_analysis.active_days }} 个活跃日</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="trend-hero-stage">
+        <div class="trend-hero-orbit"></div>
+        <div class="trend-hero-card">
+          <p class="eyebrow">Signal Stage</p>
+          <h2>{{ trend_analysis.headline }}</h2>
+          <p class="muted-text">{{ trend_analysis.summary }}</p>
+          <div class="trend-hero-metrics">
+            {% for item in trend_analysis.hero_highlights %}
+            <article class="trend-hero-metric">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+              <em>{{ item.meta }}</em>
+            </article>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <form action="/trend-analysis" method="get" class="trend-filter-form">
+        <label>
+          时间范围
+          <select name="window">
+            {% for option in trend_analysis.window_options %}
+            <option value="{{ option.value }}" {% if option.value == trend_analysis.selected_window %}selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit">更新趋势</button>
+      </form>
+    </section>
+
+    {% if trend_analysis.has_data %}
+    <section class="trend-story card">
+      <div class="trend-story-main">
+        <p class="eyebrow">Reading Guide</p>
+        <h2>先看时间走势，再看热度升降，最后定位纠错压力和新风格信号。</h2>
+        <p class="lead">头图负责告诉你“现在正在发生什么”，下面的模块负责继续拆开原因、节奏和需要优先关注的风格方向。</p>
+      </div>
+      {% if trend_analysis.watch_items %}
+      <div class="trend-story-aside">
+        <p class="eyebrow">Watchlist</p>
+        <div class="trend-watch-list">
+          {% for item in trend_analysis.watch_items %}
+          <article class="trend-watch-item">{{ item }}</article>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="grid trend-summary-grid">
+      {% for card in trend_analysis.summary_cards %}
+      <article class="card ranking-stat-card">
+        <p class="eyebrow">{{ card.eyebrow }}</p>
+        <p class="ranking-stat-value">{{ card.value }}</p>
+        <p class="muted-text">{{ card.label }}</p>
+      </article>
+      {% endfor %}
+    </section>
+
+    <section class="card trend-chart-card">
+      <div class="section-head">
+        <div>
+          <h2>时间走势</h2>
+          <p class="muted-text">每根柱子代表一个时间桶，内部再拆成已通过、待审核和已驳回三部分。</p>
+        </div>
+        <div class="trend-legend">
+          <span><i class="trend-dot approved"></i>已通过</span>
+          <span><i class="trend-dot pending"></i>待审核</span>
+          <span><i class="trend-dot rejected"></i>已驳回</span>
+        </div>
+      </div>
+
+      <div class="trend-chart-shell">
+        <div class="trend-chart-grid" aria-hidden="true"></div>
+        <div class="trend-chart">
+          {% for row in trend_analysis.timeline_rows %}
+          <article class="trend-column">
+            <div class="trend-column-meta">
+              <strong>{{ row.total }}</strong>
+              <span>{{ row.corrected_count }} 次纠错</span>
+            </div>
+            <div class="trend-bar-scene">
+              <div class="trend-bar-track{% if row.is_peak %} peak{% endif %}">
+                {% if row.total > 0 %}
+                <div class="trend-bar-fill" style="height: {{ row.height_percent }}%;">
+                  {% if row.approved_count %}
+                  <span class="trend-bar-segment approved" style="height: {{ row.approved_share }}%;"></span>
+                  {% endif %}
+                  {% if row.pending_count %}
+                  <span class="trend-bar-segment pending" style="height: {{ row.pending_share }}%;"></span>
+                  {% endif %}
+                  {% if row.rejected_count %}
+                  <span class="trend-bar-segment rejected" style="height: {{ row.rejected_share }}%;"></span>
+                  {% endif %}
+                </div>
+                {% else %}
+                <span class="trend-empty-bar"></span>
+                {% endif %}
+              </div>
+            </div>
+            <div class="trend-column-label" title="{{ row.full_label }}">{{ row.label }}</div>
+          </article>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <section class="grid trend-detail-grid">
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h2>升温中的风格</h2>
+            <p class="muted-text">最近 {{ trend_analysis.compare_days }} 天 vs 更早 {{ trend_analysis.compare_days }} 天</p>
+          </div>
+        </div>
+        {% if trend_analysis.surging_rows %}
+        <div class="ranking-growth-list">
+          {% for row in trend_analysis.surging_rows %}
+          <article class="ranking-growth-card">
+            <div class="section-head">
+              <div>
+                <strong>{{ row.style }}</strong>
+                <p class="muted-text">最近 {{ row.current_count }} · 更早 {{ row.previous_count }}</p>
+              </div>
+              <span class="growth-badge">{{ row.delta_label }}</span>
+            </div>
+            {% if row.preview_images %}
+            <div class="mini-preview-row">
+              {% for image in row.preview_images %}
+              <a href="{{ image.url }}" target="_blank" rel="noopener noreferrer">
+                <img src="{{ image.url }}" alt="{{ image.name }}" class="mini-preview-image">
+              </a>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </article>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p>当前还没有明显升温的风格。</p>
+        {% endif %}
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h2>降温中的风格</h2>
+            <p class="muted-text">帮助你判断哪些方向最近讨论度在回落。</p>
+          </div>
+        </div>
+        {% if trend_analysis.cooling_rows %}
+        <div class="ranking-growth-list">
+          {% for row in trend_analysis.cooling_rows %}
+          <article class="ranking-growth-card">
+            <div class="section-head">
+              <div>
+                <strong>{{ row.style }}</strong>
+                <p class="muted-text">最近 {{ row.current_count }} · 更早 {{ row.previous_count }}</p>
+              </div>
+              <span class="growth-badge negative">{{ row.delta_label }}</span>
+            </div>
+            {% if row.preview_images %}
+            <div class="mini-preview-row">
+              {% for image in row.preview_images %}
+              <a href="{{ image.url }}" target="_blank" rel="noopener noreferrer">
+                <img src="{{ image.url }}" alt="{{ image.name }}" class="mini-preview-image">
+              </a>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </article>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p>当前没有明显回落的风格。</p>
+        {% endif %}
+      </section>
+    </section>
+
+    <section class="grid trend-detail-grid">
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h2>纠错压力高的风格</h2>
+            <p class="muted-text">样本数至少 2 条，优先帮你发现模型容易偏掉的方向。</p>
+          </div>
+        </div>
+        {% if trend_analysis.correction_rows %}
+        <div class="trend-signal-list">
+          {% for row in trend_analysis.correction_rows %}
+          <article class="trend-signal-card">
+            <div class="section-head">
+              <strong>{{ row.style }}</strong>
+              <span class="growth-badge{% if row.correction_rate_percent >= 50 %} negative{% endif %}">{{ row.correction_rate_percent }}%</span>
+            </div>
+            <p class="muted-text">总反馈 {{ row.total }}，人工纠错 {{ row.corrected }}，通过 {{ row.approved }}，待审 {{ row.pending }}，驳回 {{ row.rejected }}</p>
+          </article>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p>当前样本还不足以计算纠错压力。</p>
+        {% endif %}
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h2>新出现的风格</h2>
+            <p class="muted-text">{{ trend_analysis.emerging_label }}</p>
+          </div>
+        </div>
+        {% if trend_analysis.emerging_rows %}
+        <div class="trend-signal-list">
+          {% for row in trend_analysis.emerging_rows %}
+          <article class="trend-signal-card">
+            <div class="section-head">
+              <strong>{{ row.style }}</strong>
+              <span class="text-link">首次出现：{{ row.first_seen_label }}</span>
+            </div>
+            <p class="muted-text">当前时间范围内共 {{ row.total }} 次反馈。</p>
+            {% if row.preview_images %}
+            <div class="mini-preview-row">
+              {% for image in row.preview_images %}
+              <a href="{{ image.url }}" target="_blank" rel="noopener noreferrer">
+                <img src="{{ image.url }}" alt="{{ image.name }}" class="mini-preview-image">
+              </a>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </article>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p>当前时间范围内还没有检测到新出现的风格。</p>
+        {% endif %}
+      </section>
+    </section>
+
+    <section class="grid trend-insight-grid">
+      {% for item in trend_analysis.insight_cards %}
+      <article class="card trend-insight-card">
+        <p class="eyebrow">{{ item.eyebrow }}</p>
+        <h2>{{ item.title }}</h2>
+        <p class="muted-text">{{ item.detail }}</p>
+      </article>
+      {% endfor %}
+    </section>
+    {% else %}
+    <section class="card ranking-empty-card">
+      <h2>还没有足够的趋势数据</h2>
+      <p>等用户开始上传、纠错和进入审核流后，这里会自动长出时间走势、升温风格和纠错压力面板。</p>
+    </section>
+    {% endif %}
+  </main>
+</body>
+</html>

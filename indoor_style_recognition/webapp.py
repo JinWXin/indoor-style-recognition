@@ -17,6 +17,7 @@ from io import BytesIO, StringIO
 from pathlib import Path
 
 import pandas as pd
+from openpyxl import load_workbook
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -99,6 +100,143 @@ _style_definition_cache = {
 
 def _safe_error_message(prefix, exc):
     return f'{prefix}: {exc}'
+
+
+def invalidate_style_definition_cache():
+    _style_definition_cache['excel_path'] = ''
+    _style_definition_cache['mtime'] = None
+    _style_definition_cache['profiles'] = {}
+
+
+def normalize_style_name(style_name: str) -> str:
+    return normalize_text(style_name or '')
+
+
+def get_editable_style_profile_fields():
+    fields = []
+    for index, (_, alias) in enumerate(STYLE_TEXT_COLUMNS):
+        if alias == '搜索关键词':
+            continue
+        fields.append({
+            'alias': alias,
+            'form_name': f'style_profile_{index}',
+        })
+    return fields
+
+
+def ensure_style_directory(style_name: str) -> Path:
+    normalized_style = normalize_style_name(style_name)
+    if not normalized_style:
+        raise ValueError('风格名称不能为空。')
+    target_dir = Path(TRAIN_IMAGE_ROOT) / normalized_style
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return target_dir
+
+
+def ensure_style_definition_entry(style_name: str) -> bool:
+    """确保 Excel 定义页里存在该风格，缺失时自动补一行空白定义。"""
+    normalized_style = normalize_style_name(style_name)
+    if not normalized_style:
+        raise ValueError('风格名称不能为空。')
+
+    excel_path = Path(EXCEL_PATH)
+    if not excel_path.exists():
+        raise FileNotFoundError(f'Excel 文件不存在：{excel_path}')
+
+    workbook = load_workbook(excel_path)
+    if STYLE_DEFINITION_SHEET_NAME not in workbook.sheetnames:
+        raise KeyError(f'Excel 中缺少工作表：{STYLE_DEFINITION_SHEET_NAME}')
+
+    sheet = workbook[STYLE_DEFINITION_SHEET_NAME]
+    header_cells = [cell.value for cell in sheet[1]]
+    header_map = {
+        str(value).strip(): idx + 1
+        for idx, value in enumerate(header_cells)
+        if str(value).strip()
+    }
+
+    style_column = header_map.get('美学风格词')
+    if not style_column:
+        raise KeyError("风格定义页缺少 '美学风格词' 列，无法自动追加风格。")
+
+    for row_idx in range(2, sheet.max_row + 1):
+        existing_value = normalize_style_name(sheet.cell(row=row_idx, column=style_column).value)
+        if existing_value == normalized_style:
+            return False
+
+    new_row_index = sheet.max_row + 1
+    sheet.cell(row=new_row_index, column=style_column, value=normalized_style)
+
+    # 为常用定义字段预留空白单元格，方便后续人工补全。
+    for column_name, _ in STYLE_TEXT_COLUMNS:
+        column_index = header_map.get(column_name)
+        if column_index:
+            sheet.cell(row=new_row_index, column=column_index, value='')
+
+    workbook.save(excel_path)
+    invalidate_style_definition_cache()
+    return True
+
+
+def save_style_definition_profile(style_name: str, profile_updates: dict[str, str]) -> tuple[bool, bool]:
+    """把网页里的风格说明写回 Excel 定义页。"""
+    normalized_style = normalize_style_name(style_name)
+    if not normalized_style:
+        raise ValueError('风格名称不能为空。')
+
+    excel_path = Path(EXCEL_PATH)
+    if not excel_path.exists():
+        raise FileNotFoundError(f'Excel 文件不存在：{excel_path}')
+
+    workbook = load_workbook(excel_path)
+    if STYLE_DEFINITION_SHEET_NAME not in workbook.sheetnames:
+        raise KeyError(f'Excel 中缺少工作表：{STYLE_DEFINITION_SHEET_NAME}')
+
+    sheet = workbook[STYLE_DEFINITION_SHEET_NAME]
+    header_cells = [cell.value for cell in sheet[1]]
+    header_map = {
+        str(value).strip(): idx + 1
+        for idx, value in enumerate(header_cells)
+        if str(value).strip()
+    }
+
+    style_column = header_map.get('美学风格词')
+    if not style_column:
+        raise KeyError("风格定义页缺少 '美学风格词' 列，无法保存风格说明。")
+
+    row_index = None
+    for current_row in range(2, sheet.max_row + 1):
+        existing_value = normalize_style_name(sheet.cell(row=current_row, column=style_column).value)
+        if existing_value == normalized_style:
+            row_index = current_row
+            break
+
+    created_row = False
+    if row_index is None:
+        row_index = sheet.max_row + 1
+        sheet.cell(row=row_index, column=style_column, value=normalized_style)
+        created_row = True
+
+    updated = False
+    for column_name, alias in STYLE_TEXT_COLUMNS:
+        if alias not in profile_updates:
+            continue
+
+        column_index = header_map.get(column_name)
+        if not column_index:
+            continue
+
+        new_value = normalize_text(profile_updates.get(alias, ''))
+        existing_value = normalize_text(sheet.cell(row=row_index, column=column_index).value)
+        if existing_value == new_value:
+            continue
+
+        sheet.cell(row=row_index, column=column_index, value=new_value)
+        updated = True
+
+    workbook.save(excel_path)
+    invalidate_style_definition_cache()
+    return created_row, updated
 
 
 def is_admin_authenticated(request: Request):
@@ -327,6 +465,9 @@ def build_style_gallery_context(request: Request, style_name='', search_query=''
 
     selected_profile = get_style_profile(selected_style) if selected_style else {}
     selected_images = list_style_gallery_items(selected_style) if selected_style else []
+    profile_field_descriptors = get_editable_style_profile_fields()
+    for field in profile_field_descriptors:
+        field['value'] = selected_profile.get(field['alias'], '')
 
     return build_context(
         skip_predictor_probe=True,
@@ -340,6 +481,7 @@ def build_style_gallery_context(request: Request, style_name='', search_query=''
         selected_style_images=selected_images,
         selected_style_image_count=len(selected_images),
         style_profile_fields=[alias for _, alias in STYLE_TEXT_COLUMNS if alias != '搜索关键词'],
+        style_profile_form_fields=profile_field_descriptors,
     )
 
 
@@ -415,6 +557,13 @@ UPLOAD_RANKING_STATUSES = {
     'rejected': '已驳回',
 }
 
+TREND_ANALYSIS_WINDOWS = {
+    '14d': {'label': '近 14 天', 'days': 14, 'bucket': 'day'},
+    '30d': {'label': '近 30 天', 'days': 30, 'bucket': 'day'},
+    '90d': {'label': '近 90 天', 'days': 90, 'bucket': 'week'},
+    'all': {'label': '全部时间', 'days': None, 'bucket': 'month'},
+}
+
 
 def parse_iso_datetime(value):
     text = (value or '').strip()
@@ -426,6 +575,63 @@ def parse_iso_datetime(value):
         return None
 
 
+def start_of_day(value: datetime) -> datetime:
+    return datetime(value.year, value.month, value.day)
+
+
+def start_of_week(value: datetime) -> datetime:
+    day_start = start_of_day(value)
+    return day_start - timedelta(days=day_start.weekday())
+
+
+def start_of_month(value: datetime) -> datetime:
+    return datetime(value.year, value.month, 1)
+
+
+def next_month(value: datetime) -> datetime:
+    if value.month == 12:
+        return datetime(value.year + 1, 1, 1)
+    return datetime(value.year, value.month + 1, 1)
+
+
+def floor_bucket_start(value: datetime, bucket: str) -> datetime:
+    if bucket == 'day':
+        return start_of_day(value)
+    if bucket == 'week':
+        return start_of_week(value)
+    return start_of_month(value)
+
+
+def next_bucket_start(value: datetime, bucket: str) -> datetime:
+    if bucket == 'day':
+        return value + timedelta(days=1)
+    if bucket == 'week':
+        return value + timedelta(days=7)
+    return next_month(value)
+
+
+def format_bucket_label(bucket_start: datetime, bucket: str) -> tuple[str, str]:
+    if bucket == 'day':
+        return bucket_start.strftime('%m-%d'), bucket_start.strftime('%Y-%m-%d')
+    if bucket == 'week':
+        bucket_end = bucket_start + timedelta(days=6)
+        return (
+            f"{bucket_start.strftime('%m/%d')}-{bucket_end.strftime('%m/%d')}",
+            f"{bucket_start.strftime('%Y-%m-%d')} 至 {bucket_end.strftime('%Y-%m-%d')}",
+        )
+    return bucket_start.strftime('%Y-%m'), bucket_start.strftime('%Y 年 %m 月')
+
+
+def build_bucket_starts(range_start: datetime, range_end: datetime, bucket: str) -> list[datetime]:
+    starts = []
+    current = floor_bucket_start(range_start, bucket)
+    end = floor_bucket_start(range_end, bucket)
+    while current <= end:
+        starts.append(current)
+        current = next_bucket_start(current, bucket)
+    return starts
+
+
 def list_style_preview_images(style_name, limit=3):
     return [
         {'url': item['url'], 'name': item['name']}
@@ -433,20 +639,22 @@ def list_style_preview_images(style_name, limit=3):
     ]
 
 
-def iter_upload_ranking_events():
+def iter_trend_analysis_events():
     feedback_log_path = Path(PROCESSED_DIR) / 'feedback_log.csv'
     if feedback_log_path.exists():
         with open(feedback_log_path, 'r', encoding='utf-8', newline='') as handle:
             for row in csv.DictReader(handle):
                 style_name = (row.get('chosen_style') or '').strip()
-                activity_at = parse_iso_datetime(row.get('timestamp'))
-                if not style_name or activity_at is None:
+                submitted_at = parse_iso_datetime(row.get('timestamp'))
+                if not style_name or submitted_at is None:
                     continue
                 yield {
                     'style': style_name,
                     'status': 'approved',
-                    'uploaded_at': activity_at,
-                    'activity_at': activity_at,
+                    'submitted_at': submitted_at,
+                    'uploaded_at': submitted_at,
+                    'activity_at': submitted_at,
+                    'is_correct': row.get('is_correct') == '1',
                 }
 
     pending_log_path = Path(PROCESSED_DIR) / 'review_queue' / 'pending_reviews.csv'
@@ -455,19 +663,31 @@ def iter_upload_ranking_events():
             for row in csv.DictReader(handle):
                 style_name = (row.get('chosen_style') or '').strip()
                 status = (row.get('status') or '').strip().lower()
-                uploaded_at = parse_iso_datetime(row.get('timestamp'))
+                submitted_at = parse_iso_datetime(row.get('timestamp'))
                 reviewed_at = parse_iso_datetime(row.get('reviewed_at'))
                 if not style_name or status not in {'pending', 'rejected'}:
                     continue
-                activity_at = reviewed_at if status == 'rejected' and reviewed_at is not None else uploaded_at
+                activity_at = reviewed_at if status == 'rejected' and reviewed_at is not None else submitted_at
                 if activity_at is None:
                     continue
                 yield {
                     'style': style_name,
                     'status': status,
-                    'uploaded_at': uploaded_at or activity_at,
+                    'submitted_at': submitted_at or activity_at,
+                    'uploaded_at': submitted_at or activity_at,
                     'activity_at': activity_at,
+                    'is_correct': row.get('is_correct') == '1',
                 }
+
+
+def iter_upload_ranking_events():
+    for event in iter_trend_analysis_events():
+        yield {
+            'style': event['style'],
+            'status': event['status'],
+            'uploaded_at': event['uploaded_at'],
+            'activity_at': event['activity_at'],
+        }
 
 
 def build_upload_ranking_snapshot(top_n=12, window_key='all', status_filter='all'):
@@ -607,6 +827,392 @@ def build_upload_ranking_snapshot(top_n=12, window_key='all', status_filter='all
         'preview_rows': preview_rows,
         'compare_window_label': f"最近 {compare_days} 天 vs 更早 {compare_days} 天",
         'export_url': f"/upload-ranking/export?window={selected_window}&status={selected_status}",
+    }
+
+
+def build_trend_analysis_snapshot(window_key='30d'):
+    selected_window = window_key if window_key in TREND_ANALYSIS_WINDOWS else '30d'
+    window_config = TREND_ANALYSIS_WINDOWS[selected_window]
+    bucket = window_config['bucket']
+    window_days = window_config['days']
+    now = datetime.now()
+    range_start = start_of_day(now - timedelta(days=window_days - 1)) if window_days else None
+    style_first_seen = {}
+    all_events = list(iter_trend_analysis_events())
+
+    for event in all_events:
+        submitted_at = event.get('submitted_at')
+        style_name = event.get('style', '')
+        if submitted_at is None or not style_name:
+            continue
+        existing = style_first_seen.get(style_name)
+        if existing is None or submitted_at < existing:
+            style_first_seen[style_name] = submitted_at
+
+    filtered_events = [
+        event for event in all_events
+        if event.get('submitted_at') is not None
+        and (range_start is None or event['submitted_at'] >= range_start)
+    ]
+
+    if not filtered_events:
+        return {
+            'has_data': False,
+            'selected_window': selected_window,
+            'window_label': window_config['label'],
+            'window_options': [{'value': key, 'label': item['label']} for key, item in TREND_ANALYSIS_WINDOWS.items()],
+            'bucket_label': {'day': '按天', 'week': '按周', 'month': '按月'}[bucket],
+            'compare_days': min(window_days or 60, 30),
+            'active_days': 0,
+            'summary_cards': [],
+            'timeline_rows': [],
+            'surging_rows': [],
+            'cooling_rows': [],
+            'correction_rows': [],
+            'emerging_rows': [],
+            'insight_cards': [],
+            'dominant_style': None,
+            'peak_bucket': None,
+            'preview_stats': [],
+            'headline': '',
+            'summary': '',
+            'watch_items': [],
+            'compact_timeline_rows': [],
+            'signal_ribbon': [],
+            'hero_highlights': [],
+        }
+
+    effective_range_start = range_start or min(event['submitted_at'] for event in filtered_events)
+    bucket_starts = build_bucket_starts(effective_range_start, now, bucket)
+    timeline_map = {
+        bucket_start: {
+            'total': 0,
+            'approved': 0,
+            'pending': 0,
+            'rejected': 0,
+            'corrected': 0,
+        }
+        for bucket_start in bucket_starts
+    }
+
+    style_counts = Counter()
+    style_corrected_counts = Counter()
+    style_status_counts = {}
+    active_days = set()
+
+    for event in filtered_events:
+        bucket_start = floor_bucket_start(event['submitted_at'], bucket)
+        bucket_row = timeline_map.get(bucket_start)
+        if bucket_row is None:
+            continue
+
+        style_name = event['style']
+        status = event['status']
+        is_correct = event.get('is_correct', False)
+        active_days.add(event['submitted_at'].date())
+        style_counts[style_name] += 1
+        if not is_correct:
+            style_corrected_counts[style_name] += 1
+        status_counter = style_status_counts.setdefault(style_name, Counter())
+        status_counter[status] += 1
+
+        bucket_row['total'] += 1
+        bucket_row[status] += 1
+        if not is_correct:
+            bucket_row['corrected'] += 1
+
+    total_events = sum(style_counts.values())
+    corrected_total = sum(style_corrected_counts.values())
+    approved_total = sum(counts.get('approved', 0) for counts in style_status_counts.values())
+    pending_total = sum(counts.get('pending', 0) for counts in style_status_counts.values())
+    rejected_total = sum(counts.get('rejected', 0) for counts in style_status_counts.values())
+    active_style_total = len(style_counts)
+    correction_rate_percent = round((corrected_total / total_events) * 100, 1) if total_events else 0.0
+
+    timeline_max = max((row['total'] for row in timeline_map.values()), default=0)
+    timeline_rows = []
+    for bucket_start in bucket_starts:
+        row = timeline_map[bucket_start]
+        label, full_label = format_bucket_label(bucket_start, bucket)
+        total = row['total']
+        timeline_rows.append({
+            'label': label,
+            'full_label': full_label,
+            'total': total,
+            'approved_count': row['approved'],
+            'pending_count': row['pending'],
+            'rejected_count': row['rejected'],
+            'corrected_count': row['corrected'],
+            'height_percent': max(10.0, round((total / timeline_max) * 100, 2)) if total and timeline_max else 0.0,
+            'approved_share': round((row['approved'] / total) * 100, 2) if total else 0.0,
+            'pending_share': round((row['pending'] / total) * 100, 2) if total else 0.0,
+            'rejected_share': round((row['rejected'] / total) * 100, 2) if total else 0.0,
+            'is_peak': bool(total and total == timeline_max),
+        })
+
+    dominant_style = None
+    if total_events and style_counts:
+        style_name, style_count = style_counts.most_common(1)[0]
+        dominant_style = {
+            'style': style_name,
+            'count': style_count,
+            'ratio_percent': round((style_count / total_events) * 100, 1),
+        }
+
+    peak_bucket = next((row for row in timeline_rows if row['is_peak']), None)
+
+    compare_days = min(window_days or 60, 30)
+    current_start = start_of_day(now - timedelta(days=compare_days - 1))
+    previous_start = start_of_day(current_start - timedelta(days=compare_days))
+    current_counts = Counter(
+        event['style'] for event in all_events
+        if event.get('submitted_at') is not None and event['submitted_at'] >= current_start
+    )
+    previous_counts = Counter(
+        event['style'] for event in all_events
+        if event.get('submitted_at') is not None and previous_start <= event['submitted_at'] < current_start
+    )
+    momentum_rows = []
+    for style_name in set(current_counts) | set(previous_counts):
+        current_count = current_counts.get(style_name, 0)
+        previous_count = previous_counts.get(style_name, 0)
+        delta = current_count - previous_count
+        momentum_rows.append({
+            'style': style_name,
+            'current_count': current_count,
+            'previous_count': previous_count,
+            'delta': delta,
+            'delta_label': f"{delta:+d}",
+            'preview_images': list_style_preview_images(style_name, limit=3),
+        })
+    momentum_rows.sort(key=lambda row: (row['delta'], row['current_count'], row['style']), reverse=True)
+    surging_rows = [row for row in momentum_rows if row['delta'] > 0][:5]
+    cooling_rows = sorted(
+        [row for row in momentum_rows if row['delta'] < 0],
+        key=lambda row: (row['delta'], row['current_count'], row['style'])
+    )[:5]
+
+    correction_rows = []
+    for style_name, total in style_counts.items():
+        if total < 2:
+            continue
+        corrected = style_corrected_counts.get(style_name, 0)
+        status_counts = style_status_counts.get(style_name, Counter())
+        correction_rows.append({
+            'style': style_name,
+            'total': total,
+            'corrected': corrected,
+            'correction_rate_percent': round((corrected / total) * 100, 1),
+            'approved': status_counts.get('approved', 0),
+            'pending': status_counts.get('pending', 0),
+            'rejected': status_counts.get('rejected', 0),
+        })
+    correction_rows.sort(
+        key=lambda row: (row['correction_rate_percent'], row['corrected'], row['total'], row['style']),
+        reverse=True,
+    )
+    correction_rows = correction_rows[:6]
+
+    if selected_window == 'all':
+        new_style_cutoff = start_of_day(now - timedelta(days=30 - 1))
+        emerging_label = '近 30 天首次出现'
+    else:
+        new_style_cutoff = effective_range_start
+        emerging_label = f"{window_config['label']} 内首次出现"
+
+    emerging_rows = []
+    for style_name, first_seen in style_first_seen.items():
+        if first_seen < new_style_cutoff:
+            continue
+        emerging_rows.append({
+            'style': style_name,
+            'first_seen_label': first_seen.strftime('%Y-%m-%d'),
+            'total': style_counts.get(style_name, 0),
+            'preview_images': list_style_preview_images(style_name, limit=3),
+        })
+    emerging_rows.sort(key=lambda row: (row['first_seen_label'], row['total'], row['style']), reverse=True)
+    emerging_rows = emerging_rows[:6]
+
+    new_style_total = len(emerging_rows)
+    summary_cards = [
+        {
+            'eyebrow': 'Signals',
+            'value': str(total_events),
+            'label': '时间范围内的总反馈量',
+        },
+        {
+            'eyebrow': 'Correction Rate',
+            'value': f'{correction_rate_percent:.1f}%',
+            'label': '需要人工纠错的占比',
+        },
+        {
+            'eyebrow': 'Active Styles',
+            'value': str(active_style_total),
+            'label': '被用户触达的风格数',
+        },
+        {
+            'eyebrow': 'New Styles',
+            'value': str(new_style_total),
+            'label': emerging_label,
+        },
+    ]
+
+    insight_cards = []
+    if dominant_style:
+        insight_cards.append({
+            'eyebrow': 'Dominant Style',
+            'title': dominant_style['style'],
+            'detail': f"当前时间范围内占比 {dominant_style['ratio_percent']}%，共 {dominant_style['count']} 次。",
+        })
+    if peak_bucket:
+        insight_cards.append({
+            'eyebrow': 'Peak Window',
+            'title': peak_bucket['full_label'],
+            'detail': f"这一段时间最活跃，共收到 {peak_bucket['total']} 次反馈。",
+        })
+    insight_cards.append({
+        'eyebrow': 'Review Flow',
+        'title': f'通过 {approved_total} / 待审 {pending_total} / 驳回 {rejected_total}',
+        'detail': '可以同时观察用户偏好变化和审核压力变化。',
+    })
+
+    preview_stats = []
+    if dominant_style:
+        preview_stats.append({
+            'label': '当前最热风格',
+            'value': dominant_style['style'],
+            'meta': f"{dominant_style['ratio_percent']}% · {dominant_style['count']} 次",
+        })
+    preview_stats.append({
+        'label': '人工纠错占比',
+        'value': f'{correction_rate_percent:.1f}%',
+        'meta': window_config['label'],
+    })
+    if peak_bucket:
+        preview_stats.append({
+            'label': '最活跃时段',
+            'value': peak_bucket['label'],
+            'meta': f"{peak_bucket['total']} 次反馈",
+        })
+
+    headline = '最近的用户偏好正在分散流动。'
+    if dominant_style is not None:
+        headline = f"{dominant_style['style']} 是当前最强势的主流风格。"
+    if surging_rows and dominant_style and surging_rows[0]['style'] != dominant_style['style']:
+        headline = f"{surging_rows[0]['style']} 正在快速升温，而 {dominant_style['style']} 仍保持主流优势。"
+    elif surging_rows:
+        headline = f"{surging_rows[0]['style']} 不只是热门，还在继续升温。"
+
+    summary_parts = [
+        f"在 {window_config['label']} 内共记录 {total_events} 次反馈，覆盖 {active_style_total} 个风格。",
+        f"人工纠错占比 {correction_rate_percent:.1f}%，审核流转为通过 {approved_total}、待审 {pending_total}、驳回 {rejected_total}。",
+    ]
+    if peak_bucket is not None:
+        summary_parts.append(f"最活跃的时间段是 {peak_bucket['full_label']}。")
+    summary = ' '.join(summary_parts)
+
+    watch_items = []
+    if surging_rows:
+        top_surging = surging_rows[0]
+        watch_items.append(f"升温关注：{top_surging['style']} 较上一周期 {top_surging['delta_label']}。")
+    if correction_rows:
+        top_correction = correction_rows[0]
+        watch_items.append(f"纠错关注：{top_correction['style']} 的人工纠错占比达到 {top_correction['correction_rate_percent']}%。")
+    if emerging_rows:
+        top_emerging = emerging_rows[0]
+        watch_items.append(f"新增关注：{top_emerging['style']} 于 {top_emerging['first_seen_label']} 首次出现。")
+    if not watch_items and dominant_style is not None:
+        watch_items.append(f"主流关注：{dominant_style['style']} 当前占比 {dominant_style['ratio_percent']}%。")
+
+    compact_timeline_source = timeline_rows[-12:]
+    compact_timeline_max = max((row['total'] for row in compact_timeline_source), default=0)
+    compact_timeline_rows = []
+    for row in compact_timeline_source:
+        compact_timeline_rows.append({
+            'label': row['label'],
+            'full_label': row['full_label'],
+            'total': row['total'],
+            'corrected_count': row['corrected_count'],
+            'height_percent': max(14.0, round((row['total'] / compact_timeline_max) * 100, 2)) if row['total'] and compact_timeline_max else 0.0,
+            'is_peak': bool(row['total'] and row['total'] == compact_timeline_max),
+        })
+
+    signal_ribbon = []
+    if dominant_style is not None:
+        signal_ribbon.append({
+            'tone': 'neutral',
+            'label': '主流风格',
+            'value': dominant_style['style'],
+            'meta': f"{dominant_style['ratio_percent']}%",
+        })
+    if surging_rows:
+        signal_ribbon.append({
+            'tone': 'up',
+            'label': '升温最快',
+            'value': surging_rows[0]['style'],
+            'meta': surging_rows[0]['delta_label'],
+        })
+    if correction_rows:
+        signal_ribbon.append({
+            'tone': 'warn',
+            'label': '纠错关注',
+            'value': correction_rows[0]['style'],
+            'meta': f"{correction_rows[0]['correction_rate_percent']}%",
+        })
+    elif peak_bucket is not None:
+        signal_ribbon.append({
+            'tone': 'neutral',
+            'label': '活跃时段',
+            'value': peak_bucket['label'],
+            'meta': f"{peak_bucket['total']} 次",
+        })
+
+    hero_highlights = [
+        {
+            'label': '反馈信号',
+            'value': str(total_events),
+            'meta': window_config['label'],
+        },
+        {
+            'label': '主流风格',
+            'value': dominant_style['style'] if dominant_style else '暂无',
+            'meta': (
+                f"{dominant_style['ratio_percent']}% 占比"
+                if dominant_style else '等待更多样本'
+            ),
+        },
+        {
+            'label': '纠错压力',
+            'value': f'{correction_rate_percent:.1f}%',
+            'meta': '人工纠错占比',
+        },
+    ]
+
+    return {
+        'has_data': True,
+        'selected_window': selected_window,
+        'window_label': window_config['label'],
+        'window_options': [{'value': key, 'label': item['label']} for key, item in TREND_ANALYSIS_WINDOWS.items()],
+        'bucket_label': {'day': '按天', 'week': '按周', 'month': '按月'}[bucket],
+        'compare_days': compare_days,
+        'summary_cards': summary_cards,
+        'timeline_rows': timeline_rows,
+        'surging_rows': surging_rows,
+        'cooling_rows': cooling_rows,
+        'correction_rows': correction_rows,
+        'emerging_rows': emerging_rows,
+        'emerging_label': emerging_label,
+        'insight_cards': insight_cards,
+        'dominant_style': dominant_style,
+        'peak_bucket': peak_bucket,
+        'preview_stats': preview_stats,
+        'active_days': len(active_days),
+        'headline': headline,
+        'summary': summary,
+        'watch_items': watch_items,
+        'compact_timeline_rows': compact_timeline_rows,
+        'signal_ribbon': signal_ribbon,
+        'hero_highlights': hero_highlights,
     }
 
 
@@ -858,6 +1464,7 @@ async def index(request: Request):
         name='index.html',
         context=build_context(
             admin_logged_in=is_admin_authenticated(request),
+            trend_analysis_preview=build_trend_analysis_snapshot(window_key='30d'),
         ),
     )
 
@@ -893,6 +1500,19 @@ async def upload_ranking(request: Request, window: str = 'all', status: str = 'a
             skip_predictor_probe=True,
             admin_logged_in=is_admin_authenticated(request),
             upload_ranking=build_upload_ranking_snapshot(window_key=window, status_filter=status),
+        ),
+    )
+
+
+@app.get('/trend-analysis', response_class=HTMLResponse)
+async def trend_analysis(request: Request, window: str = '30d'):
+    return templates.TemplateResponse(
+        request=request,
+        name='trend_analysis.html',
+        context=build_context(
+            skip_predictor_probe=True,
+            admin_logged_in=is_admin_authenticated(request),
+            trend_analysis=build_trend_analysis_snapshot(window_key=window),
         ),
     )
 
@@ -959,11 +1579,14 @@ async def upload_style_images(
 
     saved_count = 0
     image_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
-    target_dir = Path(TRAIN_IMAGE_ROOT) / style_name.strip()
+    normalized_style = normalize_style_name(style_name)
 
     try:
-        if not style_name.strip():
+        if not normalized_style:
             raise ValueError('请先选择要上传到哪个风格。')
+
+        target_dir = ensure_style_directory(normalized_style)
+        created_excel_entry = ensure_style_definition_entry(normalized_style)
 
         for upload in image_files:
             suffix = Path(upload.filename or '').suffix.lower()
@@ -976,18 +1599,104 @@ async def upload_style_images(
         if saved_count == 0:
             raise ValueError('没有上传成功的图片，请确认文件格式为 jpg/png/webp/bmp。')
 
+        message = f'已上传 {saved_count} 张图片到风格「{normalized_style}」。'
+        if created_excel_entry:
+            message += ' 已自动把该风格追加到 Excel 定义页。'
+
         context = build_style_gallery_context(
             request=request,
-            style_name=style_name.strip(),
+            style_name=normalized_style,
             search_query=search_query.strip(),
-            message=f'已上传 {saved_count} 张图片到风格「{style_name.strip()}」。',
+            message=message,
         )
     except Exception as exc:
         context = build_style_gallery_context(
             request=request,
-            style_name=style_name.strip(),
+            style_name=normalized_style,
             search_query=search_query.strip(),
             error=f'上传图片失败：{exc}',
+        )
+
+    return templates.TemplateResponse(request=request, name='style_gallery.html', context=context)
+
+
+@app.post('/styles/create', response_class=HTMLResponse)
+async def create_style(
+    request: Request,
+    new_style_name: str = Form(...),
+    search_query: str = Form(''),
+):
+    redirect = require_admin(request)
+    if redirect is not None:
+        return redirect
+
+    normalized_style = normalize_style_name(new_style_name)
+
+    try:
+        if not normalized_style:
+            raise ValueError('请输入新风格名称。')
+
+        ensure_style_directory(normalized_style)
+        created_excel_entry = ensure_style_definition_entry(normalized_style)
+        message = f'已创建风格「{normalized_style}」。'
+        if created_excel_entry:
+            message += ' 已自动追加到 Excel 定义页。'
+        else:
+            message += ' Excel 定义页里原本就有这个风格。'
+
+        context = build_style_gallery_context(
+            request=request,
+            style_name=normalized_style,
+            search_query=search_query.strip(),
+            message=message,
+        )
+    except Exception as exc:
+        context = build_style_gallery_context(
+            request=request,
+            search_query=search_query.strip(),
+            error=f'创建风格失败：{exc}',
+        )
+
+    return templates.TemplateResponse(request=request, name='style_gallery.html', context=context)
+
+
+@app.post('/styles/profile/update', response_class=HTMLResponse)
+async def update_style_profile(request: Request):
+    redirect = require_admin(request)
+    if redirect is not None:
+        return redirect
+
+    form = await request.form()
+    style_name = normalize_style_name(form.get('style_name', ''))
+    search_query = normalize_text(form.get('search_query', ''))
+
+    try:
+        if not style_name:
+            raise ValueError('请先选择要编辑的风格。')
+
+        profile_updates = {}
+        for field in get_editable_style_profile_fields():
+            profile_updates[field['alias']] = normalize_text(form.get(field['form_name'], ''))
+
+        created_excel_entry, updated = save_style_definition_profile(style_name, profile_updates)
+        message = f'已保存风格「{style_name}」的说明到 Excel。'
+        if created_excel_entry:
+            message += ' 已自动创建该风格的定义行。'
+        elif not updated:
+            message = f'风格「{style_name}」的说明没有变化。'
+
+        context = build_style_gallery_context(
+            request=request,
+            style_name=style_name,
+            search_query=search_query,
+            message=message,
+        )
+    except Exception as exc:
+        context = build_style_gallery_context(
+            request=request,
+            style_name=style_name,
+            search_query=search_query,
+            error=f'保存风格说明失败：{exc}',
         )
 
     return templates.TemplateResponse(request=request, name='style_gallery.html', context=context)
@@ -1037,18 +1746,23 @@ async def move_style_image(
         return redirect
 
     try:
-        if not target_style.strip():
+        normalized_target_style = normalize_style_name(target_style)
+        if not normalized_target_style:
             raise ValueError('请选择目标风格。')
 
         source_path = resolve_dataset_relative_path(relative_path)
-        destination_dir = Path(TRAIN_IMAGE_ROOT) / target_style.strip()
+        destination_dir = ensure_style_directory(normalized_target_style)
+        created_excel_entry = ensure_style_definition_entry(normalized_target_style)
         destination = unique_destination_path(destination_dir, source_path.name)
         shutil.move(str(source_path), str(destination))
+        message = f'已把图片移动到风格「{normalized_target_style}」。'
+        if created_excel_entry:
+            message += ' 已自动把该风格追加到 Excel 定义页。'
         context = build_style_gallery_context(
             request=request,
-            style_name=target_style.strip(),
+            style_name=normalized_target_style,
             search_query=search_query.strip(),
-            message=f'已把图片移动到风格「{target_style.strip()}」。',
+            message=message,
         )
     except Exception as exc:
         context = build_style_gallery_context(
@@ -1279,10 +1993,13 @@ async def review_feedback(
 
     if review_action == 'approve':
         image = predictor.load_image(str(pending_path))
+        approved_style = normalize_style_name(row.get('chosen_style', '').strip())
+        ensure_style_directory(approved_style)
+        created_excel_entry = ensure_style_definition_entry(approved_style)
         saved_path = save_feedback_image(
             predictor=predictor,
             image_input=str(pending_path),
-            style_name=row.get('chosen_style', '').strip(),
+            style_name=approved_style,
             image=image,
         )
         predictions = []
@@ -1306,6 +2023,8 @@ async def review_feedback(
         )
         pending_path.unlink(missing_ok=True)
         message = f'审核已通过，图片已加入训练库：{saved_path}'
+        if created_excel_entry:
+            message += ' 已自动把该风格追加到 Excel 定义页。'
     elif review_action == 'reject':
         update_pending_review_status(
             review_id=review_id,
