@@ -4,25 +4,61 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>上传风格排行</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-  <main class="page">
-    <nav class="topnav">
-      <a href="/">识别台</a>
-      <a href="/styles">风格图库</a>
-      <a href="/upload-ranking" class="active">上传排行</a>
-      <a href="/training-status">训练状态</a>
-      {% if admin_logged_in %}
-      <a href="/admin/reviews">审核台</a>
-      {% else %}
-      <a href="/admin/login">管理员登录</a>
-      {% endif %}
-    </nav>
+<body class="app-shell-body">
+  <div class="app-shell">
+    <aside class="app-sidebar">
+      <a href="/" class="app-brand">
+        <span class="app-brand-mark" aria-hidden="true">
+          <span class="app-brand-mark-glyph">人</span>
+          <span class="app-brand-mark-subglyph">居</span>
+        </span>
+        <span class="app-brand-copy">
+          <strong>人居美学</strong>
+          <em>空间风格研究</em>
+        </span>
+      </a>
+      <nav class="app-nav">
+        <a href="/" class="app-nav-link">汇总首页</a>
+        <a href="/recognition" class="app-nav-link">风格识别</a>
+        <a href="/styles" class="app-nav-link">风格列表</a>
+        <a href="/trend-analysis" class="app-nav-link">趋势分析</a>
+        <a href="/upload-ranking" class="app-nav-link active">上传排行</a>
+        {% if admin_logged_in %}
+        <a href="/admin/reviews" class="app-nav-link">馆长入口</a>
+        {% else %}
+        <a href="/admin/login" class="app-nav-link">馆长入口</a>
+        {% endif %}
+      </nav>
+      <div class="app-sidebar-footer">
+        <span class="app-footer-label">上传图谱</span>
+        <strong>{{ upload_ranking.window_label }}</strong>
+        <p>按时间与审核状态读取上传热度、增长、质量与代表图分布。</p>
+      </div>
+    </aside>
+
+    <div class="app-main-shell">
+      <header class="app-topbar">
+        <div class="app-topbar-copy">
+          <span class="app-breadcrumb">人居美学 / 上传排行</span>
+          <h2>上传排行</h2>
+        </div>
+        <div class="app-topbar-status">
+          <span class="app-status-chip">{{ upload_ranking.window_label }}</span>
+          <span class="app-status-chip">{{ upload_ranking.status_label }}</span>
+          <a href="{{ upload_ranking.export_url }}" class="app-header-link">导出 CSV</a>
+        </div>
+      </header>
+
+      <main class="page page-shell">
 
     <section class="hero">
       <div>
-        <p class="eyebrow">Upload Ranking</p>
+        <p class="eyebrow">上传排行</p>
         <h1>大家上传的照片风格排行</h1>
         <p class="lead">这里会按风格统计大家上传的图片比例，并支持时间筛选、审核状态切换、增长榜、质量面板、代表图预览和 CSV 导出。</p>
       </div>
@@ -58,7 +94,7 @@
     {% if upload_ranking.has_data %}
     <section class="grid ranking-summary-grid">
       <article class="card ranking-stat-card">
-        <p class="eyebrow">Uploads</p>
+        <p class="eyebrow">上传总量</p>
         <p class="ranking-stat-value">{{ upload_ranking.total_uploads }}</p>
         <p class="muted-text">当前筛选下纳入排行的总上传量</p>
       </article>
@@ -261,7 +297,9 @@
       <p>等用户开始上传并提交反馈后，这里会自动生成风格排行和占比图表。</p>
     </section>
     {% endif %}
-  </main>
+      </main>
+    </div>
+  </div>
 
   <script>
     (() => {

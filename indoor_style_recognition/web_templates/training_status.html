@@ -7,21 +7,62 @@
   {% if training_snapshot.training_is_running %}
   <meta http-equiv="refresh" content="5">
   {% endif %}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-  <main class="page">
-    <nav class="topnav">
-      <a href="/">识别台</a>
-      <a href="/styles">风格图库</a>
-      <a href="/upload-ranking">上传排行</a>
-      <a href="/trend-analysis">趋势分析</a>
-      <a href="/training-status" class="active">训练状态</a>
-    </nav>
+<body class="app-shell-body">
+  <div class="app-shell">
+    <aside class="app-sidebar">
+      <a href="/" class="app-brand">
+        <span class="app-brand-mark" aria-hidden="true">
+          <span class="app-brand-mark-glyph">人</span>
+          <span class="app-brand-mark-subglyph">居</span>
+        </span>
+        <span class="app-brand-copy">
+          <strong>人居美学</strong>
+          <em>空间风格研究</em>
+        </span>
+      </a>
+      <nav class="app-nav">
+        <a href="/" class="app-nav-link">汇总首页</a>
+        <a href="/recognition" class="app-nav-link">风格识别</a>
+        <a href="/styles" class="app-nav-link">风格列表</a>
+        <a href="/trend-analysis" class="app-nav-link">趋势分析</a>
+        <a href="/upload-ranking" class="app-nav-link">上传排行</a>
+        <a href="/training-status" class="app-nav-link active">训练状态</a>
+        {% if admin_logged_in %}
+        <a href="/admin/reviews" class="app-nav-link">馆长入口</a>
+        {% else %}
+        <a href="/admin/login" class="app-nav-link">馆长入口</a>
+        {% endif %}
+      </nav>
+      <div class="app-sidebar-footer">
+        <span class="app-footer-label">训练监控</span>
+        <strong>{{ training_snapshot.training_status.status }}</strong>
+        <p>展示模型版本、数据规模、当前步骤与训练路径，方便随时回溯。</p>
+      </div>
+    </aside>
+
+    <div class="app-main-shell">
+      <header class="app-topbar">
+        <div class="app-topbar-copy">
+          <span class="app-breadcrumb">人居美学 / 训练状态</span>
+          <h2>训练状态</h2>
+        </div>
+        <div class="app-topbar-status">
+          <span class="app-status-chip">{{ training_snapshot.training_mode_label }}</span>
+          <span class="app-status-chip">{{ training_snapshot.training_stage_label }}</span>
+          <span class="app-status-chip">{{ '模型在线' if training_snapshot.model_exists else '模型待生成' }}</span>
+        </div>
+      </header>
+
+      <main class="page page-shell">
 
     <section class="hero">
       <div>
-        <p class="eyebrow">Training Monitor</p>
+        <p class="eyebrow">训练监控</p>
         <h1>训练状态页</h1>
         <p class="lead">查看当前训练集规模、模型更新时间、反馈数量以及最近的纠错样本。</p>
       </div>
@@ -44,6 +85,10 @@
     <section class="grid status-grid">
       <article class="card stat-card">
         <h2>训练任务</h2>
+        <div class="training-status-meta">
+          <span class="training-mode-pill">{{ training_snapshot.training_mode_label }}</span>
+          <span class="training-stage-pill">{{ training_snapshot.training_stage_label }}</span>
+        </div>
         <p class="stat-value">{{ training_snapshot.training_status.status }}</p>
         <p>{{ training_snapshot.training_status.detail }}</p>
         <p>更新时间：{{ training_snapshot.training_status.updated_at or '未记录' }}</p>
@@ -60,6 +105,26 @@
         {% endif %}
         {% if training_snapshot.training_status.current_epoch and training_snapshot.training_status.total_epochs %}
         <p>当前轮次：{{ training_snapshot.training_status.current_epoch }} / {{ training_snapshot.training_status.total_epochs }}</p>
+        {% endif %}
+        {% if training_snapshot.training_steps %}
+        <div class="training-steps">
+          {% for step in training_snapshot.training_steps %}
+          <article class="training-step-card{% if step.is_current %} current{% elif step.is_completed %} completed{% else %} pending{% endif %}">
+            <div class="training-step-head">
+              <strong>{{ loop.index }}. {{ step.title }}</strong>
+              <span>{{ '进行中' if step.is_current else ('已完成' if step.is_completed else '待执行') }}</span>
+            </div>
+            <p class="training-step-command">{{ step.command }}</p>
+            {% if step.show_progress %}
+            <div class="training-progress-block compact">
+              <div class="training-progress-bar">
+                <span class="training-progress-fill" style="width: {{ training_snapshot.training_progress_percent }}%;"></span>
+              </div>
+            </div>
+            {% endif %}
+          </article>
+          {% endfor %}
+        </div>
         {% endif %}
         {% if training_snapshot.training_is_running %}
         <p>页面每 5 秒自动刷新一次。</p>
@@ -117,6 +182,8 @@
       <p>还没有纠错样本。</p>
       {% endif %}
     </section>
-  </main>
+      </main>
+    </div>
+  </div>
 </body>
 </html>

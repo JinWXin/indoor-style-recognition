@@ -4,33 +4,70 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>风格图库</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-  <main class="page">
-    <nav class="topnav">
-      <a href="/">识别台</a>
-      <a href="/styles" class="active">风格图库</a>
-      <a href="/upload-ranking">上传排行</a>
-      <a href="/training-status">训练状态</a>
-      {% if admin_logged_in %}
-      <a href="/admin/reviews">审核台</a>
-      {% else %}
-      <a href="/admin/login">管理员登录</a>
-      {% endif %}
-    </nav>
+<body class="app-shell-body">
+  <div class="app-shell">
+    <aside class="app-sidebar">
+      <a href="/" class="app-brand">
+        <span class="app-brand-mark" aria-hidden="true">
+          <span class="app-brand-mark-glyph">人</span>
+          <span class="app-brand-mark-subglyph">居</span>
+        </span>
+        <span class="app-brand-copy">
+          <strong>人居美学</strong>
+          <em>空间风格研究</em>
+        </span>
+      </a>
+      <nav class="app-nav">
+        <a href="/" class="app-nav-link">汇总首页</a>
+        <a href="/recognition" class="app-nav-link">风格识别</a>
+        <a href="/styles" class="app-nav-link active">风格列表</a>
+        <a href="/trend-analysis" class="app-nav-link">趋势分析</a>
+        <a href="/upload-ranking" class="app-nav-link">上传排行</a>
+        {% if admin_logged_in %}
+        <a href="/admin/reviews" class="app-nav-link">馆长入口</a>
+        {% else %}
+        <a href="/admin/login" class="app-nav-link">馆长入口</a>
+        {% endif %}
+      </nav>
+      <div class="app-sidebar-footer">
+        <span class="app-footer-label">馆藏导航</span>
+        <strong>{{ style_sidebar|length }} 个匹配风格</strong>
+        <p>围绕定义、原图、说明与管理员编辑动作组织成同一条浏览路径。</p>
+      </div>
+    </aside>
+
+    <div class="app-main-shell">
+      <header class="app-topbar">
+        <div class="app-topbar-copy">
+          <span class="app-breadcrumb">人居美学 / 风格列表</span>
+          <h2>风格列表</h2>
+        </div>
+        <div class="app-topbar-status">
+          <span class="app-status-chip">{{ styles|length }} 个在线风格</span>
+          {% if selected_style %}
+          <span class="app-status-chip">{{ selected_style_image_count }} 张原图</span>
+          {% endif %}
+          {% if admin_logged_in %}
+          <form action="/admin/logout" method="post" class="app-header-form">
+            <button class="secondary" type="submit">退出管理员</button>
+          </form>
+          {% endif %}
+        </div>
+      </header>
+
+      <main class="page page-shell">
 
     <section class="hero">
       <div>
-        <p class="eyebrow">Style Library</p>
+        <p class="eyebrow">风格图库</p>
         <h1>风格图库</h1>
-        <p class="lead">可公开查看每个风格的定义、色彩、材料与原图，支持查看原图、下载原图和按风格搜索。管理员登录后可上传、改风格和删除图片。</p>
+        <p class="lead">可公开查看每个风格的定义、色彩、材料与原图，支持查看原图、下载原图和按风格搜索。馆长登录后可上传、改风格、删除图片并编辑风格说明。</p>
       </div>
-      {% if admin_logged_in %}
-      <form action="/admin/logout" method="post">
-        <button class="secondary" type="submit">退出管理员</button>
-      </form>
-      {% endif %}
     </section>
 
     {% if message %}
@@ -69,6 +106,18 @@
             {% endif %}
           </div>
 
+          {% if admin_logged_in %}
+          <form action="/styles/create" method="post" class="stack admin-panel">
+            <input type="hidden" name="search_query" value="{{ style_search_query }}">
+            <h3>新增风格</h3>
+            <label>
+              新风格名称
+              <input type="text" name="new_style_name" placeholder="例如：实验性自然主义" required>
+            </label>
+            <button type="submit" class="secondary">创建风格并写入 Excel</button>
+          </form>
+          {% endif %}
+
           {% if admin_logged_in and selected_style %}
           <form action="/styles/upload" method="post" enctype="multipart/form-data" class="stack admin-panel">
             <input type="hidden" name="style_name" value="{{ selected_style }}">
@@ -83,6 +132,27 @@
           {% endif %}
 
           {% if selected_style %}
+          {% if admin_logged_in %}
+          <form action="/styles/profile/update" method="post" class="stack admin-panel">
+            <input type="hidden" name="style_name" value="{{ selected_style }}">
+            <input type="hidden" name="search_query" value="{{ style_search_query }}">
+            <div class="section-head">
+              <div>
+                <h3>编辑风格说明</h3>
+                <p class="muted-text">保存后会直接写回服务器 Excel，并继续同步到你的本地副本。</p>
+              </div>
+              <button type="submit" class="secondary">保存到 Excel</button>
+            </div>
+            <div class="style-profile-grid">
+              {% for field in style_profile_form_fields %}
+              <label class="profile-card editable-profile-card">
+                <span class="profile-field-label">{{ field.alias }}</span>
+                <textarea name="{{ field.form_name }}" rows="6" placeholder="请输入{{ field.alias }}">{{ field.value }}</textarea>
+              </label>
+              {% endfor %}
+            </div>
+          </form>
+          {% else %}
           <div class="style-profile-grid">
             {% for field in style_profile_fields %}
             <article class="profile-card">
@@ -91,6 +161,7 @@
             </article>
             {% endfor %}
           </div>
+          {% endif %}
           {% else %}
           <p>没有匹配到风格，请换个关键词再试。</p>
           {% endif %}
@@ -170,7 +241,9 @@
         </div>
       </aside>
     </section>
-  </main>
+      </main>
+    </div>
+  </div>
 
   <script>
     (() => {

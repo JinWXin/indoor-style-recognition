@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>人居美学 - 数字化策展核心</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="app-shell-body">
+  <div class="app-shell">
+    <aside class="app-sidebar">
+      <a href="/" class="app-brand">
+        <span class="app-brand-mark" aria-hidden="true">
+          <span class="app-brand-mark-glyph">人</span>
+          <span class="app-brand-mark-subglyph">居</span>
+        </span>
+        <span class="app-brand-copy">
+          <strong>人居美学</strong>
+          <em>空间风格研究</em>
+        </span>
+      </a>
+      <nav class="app-nav">
+        <a href="/" class="app-nav-link active">汇总首页</a>
+        <a href="/recognition" class="app-nav-link">风格识别</a>
+        <a href="/styles" class="app-nav-link">风格列表</a>
+        <a href="/trend-analysis" class="app-nav-link">趋势分析</a>
+        <a href="/upload-ranking" class="app-nav-link">上传排行</a>
+        {% if admin_logged_in %}
+        <a href="/admin/reviews" class="app-nav-link">馆长入口</a>
+        {% else %}
+        <a href="/admin/login" class="app-nav-link">馆长入口</a>
+        {% endif %}
+      </nav>
+      <div class="app-sidebar-footer dashboard-sidebar-footer">
+        <span class="app-footer-label">实时分析</span>
+        <strong>近 30 天</strong>
+        <p>把时间趋势、升温风格和预测洞察整理成更接近 Stitch 的总控首页。</p>
+      </div>
+    </aside>
+
+    <div class="app-main-shell">
+      <header class="app-topbar dashboard-topbar">
+        <div class="app-topbar-copy">
+          <span class="app-breadcrumb">人居美学 / 仪表盘</span>
+          <h2>仪表盘</h2>
+        </div>
+        <div class="dashboard-topbar-tools">
+          <span class="dashboard-icon-button">•</span>
+          <span class="dashboard-icon-button">⚙</span>
+          <span class="dashboard-admin-badge">{{ '管理员' if admin_logged_in else '访客' }}</span>
+        </div>
+      </header>
+
+      <main class="page page-shell">
+        <section class="dashboard-hero-block">
+          <div class="dashboard-hero-copy">
+            <h1>洞察设计演进</h1>
+            <p>欢迎回到人居美学。目前 AI 模型已完成 {{ training_snapshot.processed_rows }} 个设计案例的深度识别，准确闭环、审核状态与趋势洞察都汇总在这里。</p>
+          </div>
+          <a href="/recognition" class="dashboard-hero-action">开始识别新风格</a>
+        </section>
+
+        {% if message %}
+        <section class="notice success">{{ message }}</section>
+        {% endif %}
+        {% if error %}
+        <section class="notice error">{{ error }}</section>
+        {% endif %}
+        {% if training_snapshot.training_is_running %}
+        <section class="notice training-notice">
+          当前正在进行{{ training_snapshot.training_mode_label }}：{{ training_snapshot.training_status.detail }}
+          {% if training_snapshot.training_progress_percent is not none %}
+          进度 {{ training_snapshot.training_progress_percent }}%
+          {% endif %}
+          <a href="{% if admin_logged_in %}/admin/reviews{% else %}/admin/login{% endif %}" class="text-link">查看馆长入口</a>
+        </section>
+        {% endif %}
+
+        <section class="dashboard-metric-grid">
+          <article class="dashboard-metric-card dashboard-metric-card-primary">
+            <p class="dashboard-card-eyebrow">已识别风格总数</p>
+            <div class="dashboard-metric-main">
+              <strong>{{ training_snapshot.processed_rows }}</strong>
+              <span>+{{ styles|length }} 类风格</span>
+            </div>
+            <div class="dashboard-metric-line"><i style="width: 75%;"></i></div>
+            <p class="dashboard-card-foot">目标达成率：75% 对比当前阶段样本计划</p>
+          </article>
+
+          <article class="dashboard-metric-card dashboard-metric-card-warm">
+            <div>
+              <p class="dashboard-card-eyebrow">识别准确工作流</p>
+              <strong>{{ training_snapshot.feedback_total }}</strong>
+            </div>
+            <p class="dashboard-card-foot">累计反馈闭环记录，模型已通过线上人工修正持续校准。</p>
+          </article>
+
+          <article class="dashboard-metric-card dashboard-metric-card-accent">
+            <div>
+              <p class="dashboard-card-eyebrow">活跃趋势</p>
+              <strong>{{ pending_reviews|length }}</strong>
+            </div>
+            <p class="dashboard-card-foot">当前正在追踪的待审核项目与热点风格入口。</p>
+          </article>
+        </section>
+
+        <section class="dashboard-section-head">
+          <h2>模块导航</h2>
+          <i></i>
+        </section>
+
+        <section class="dashboard-module-grid">
+          <section class="dashboard-module-feature">
+            <div class="dashboard-module-strip" aria-label="滚动风格图">
+              {% if recent_wrong_feedback or pending_reviews %}
+                {% for row in recent_wrong_feedback[:4] %}
+                <a href="/styles{% if row.chosen_style %}?style={{ row.chosen_style|urlencode }}{% endif %}" class="dashboard-module-slide">
+                  <img src="{{ row.saved_url }}" alt="{{ row.chosen_style or row.pred_1_style }}">
+                  <span>{{ row.chosen_style or row.pred_1_style or '已归档风格' }}</span>
+                </a>
+                {% endfor %}
+                {% for row in pending_reviews[:4] %}
+                <a href="{% if admin_logged_in %}/admin/reviews{% else %}/admin/login{% endif %}" class="dashboard-module-slide">
+                  <img src="{{ row.pending_url }}" alt="{{ row.predicted_style or '待审核风格' }}">
+                  <span>{{ row.predicted_style or '待审核风格' }}</span>
+                </a>
+                {% endfor %}
+              {% else %}
+                {% for style in styles[:6] %}
+                <a href="/styles?style={{ style|urlencode }}" class="dashboard-module-slide placeholder">
+                  <span>{{ style }}</span>
+                </a>
+                {% endfor %}
+              {% endif %}
+            </div>
+            <div class="dashboard-module-overlay"></div>
+            <div class="dashboard-module-copy">
+              <span class="dashboard-card-eyebrow">风格图谱</span>
+              <h3>滚动风格图</h3>
+              <p>横向查看最近识别、纠错和待审核样本，快速进入风格识别或馆长入口。</p>
+              <a href="/recognition" class="dashboard-module-cta">开始识别</a>
+            </div>
+          </section>
+
+          <div class="dashboard-module-stack">
+            <a href="/styles" class="dashboard-module-tile">
+              <div class="dashboard-module-mark">◌</div>
+              <div>
+                <h3>风格列表</h3>
+                <p>浏览并管理所有已分类的视觉资产库。</p>
+              </div>
+            </a>
+
+            <a href="/trend-analysis" class="dashboard-module-tile">
+              <div class="dashboard-module-mark">↗</div>
+              <div>
+                <h3>趋势分析</h3>
+                <p>利用 AI 预测未来一季度的设计走向。</p>
+              </div>
+            </a>
+          </div>
+        </section>
+
+        <section class="dashboard-content-grid">
+          <div class="dashboard-feed-column">
+            <div class="dashboard-section-head dashboard-section-head-tight">
+              <h2>最新动态</h2>
+              <a href="/training-status" class="text-link">查看全部</a>
+            </div>
+
+            <div class="dashboard-feed-list">
+              {% if recent_feedback %}
+                {% for row in recent_feedback[:3] %}
+                <article class="dashboard-feed-card">
+                  <div class="dashboard-feed-thumb{% if loop.index == 2 %} warm{% elif loop.index == 3 %} amber{% endif %}"></div>
+                  <div class="dashboard-feed-copy">
+                    <div class="dashboard-feed-title-row">
+                      <h3>
+                        {% if row.is_correct == '1' %}
+                        模型成功识别新风格：{{ row.chosen_style }}
+                        {% else %}
+                        待审核：{{ row.chosen_style or row.pred_1_style }}
+                        {% endif %}
+                      </h3>
+                      <span>{{ row.timestamp }}</span>
+                    </div>
+                    <p>
+                      {% if row.is_correct == '1' %}
+                      自动将其归类至当前风格树下，Top1 预测为 {{ row.pred_1_style }}。
+                      {% else %}
+                      检测到与 {{ row.pred_1_style }} 存在偏差，需要人工确认标签与归类。
+                      {% endif %}
+                    </p>
+                  </div>
+                  <div class="dashboard-feed-pill{% if row.is_correct != '1' %} warm{% elif loop.index == 3 %} soft{% endif %}">
+                    {{ '已入库' if row.is_correct == '1' else '待审核' }}
+                  </div>
+                </article>
+                {% endfor %}
+              {% else %}
+                <article class="dashboard-feed-card">
+                  <div class="dashboard-feed-thumb"></div>
+                  <div class="dashboard-feed-copy">
+                    <div class="dashboard-feed-title-row">
+                      <h3>等待最新识别记录</h3>
+                      <span>暂无数据</span>
+                    </div>
+                    <p>开始上传图片并提交反馈后，这里会自动生成首页动态流。</p>
+                  </div>
+                  <div class="dashboard-feed-pill soft">待生成</div>
+                </article>
+              {% endif %}
+            </div>
+          </div>
+
+          <aside class="dashboard-side-stack">
+            <div class="dashboard-summary-panel">
+              <h2>审核池摘要</h2>
+              <strong>{{ pending_reviews|length }}</strong>
+              <p>项待处理审核，建议优先处理高置信度项。</p>
+              <a href="{% if admin_logged_in %}/admin/reviews{% else %}/admin/login{% endif %}" class="dashboard-summary-action">进入馆长入口</a>
+            </div>
+
+            <div class="dashboard-health-panel">
+              <h2>系统健康度</h2>
+              <div class="dashboard-health-row">
+                <span>识别延迟</span>
+                <strong>{{ '1.2s' if predictor_available else '离线' }}</strong>
+              </div>
+              <div class="dashboard-health-row">
+                <span>API 状态</span>
+                <strong class="online">{{ '运行正常' if predictor_available else '待恢复' }}</strong>
+              </div>
+              <div class="dashboard-health-row">
+                <span>索引更新时间</span>
+                <strong>{{ training_snapshot.model_updated_at_text }}</strong>
+              </div>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script>
+    (() => {
+      const strip = document.querySelector('.dashboard-module-strip');
+      if (!strip) return;
+
+      const slides = Array.from(strip.children);
+      if (slides.length < 2) return;
+
+      slides.forEach((slide) => {
+        strip.appendChild(slide.cloneNode(true));
+      });
+
+      let isPaused = false;
+      let rafId = null;
+      const step = () => {
+        if (!isPaused) {
+          strip.scrollLeft += 0.45;
+          if (strip.scrollLeft >= strip.scrollWidth / 2) {
+            strip.scrollLeft = 0;
+          }
+        }
+        rafId = window.requestAnimationFrame(step);
+      };
+
+      strip.addEventListener('mouseenter', () => {
+        isPaused = true;
+      });
+
+      strip.addEventListener('mouseleave', () => {
+        isPaused = false;
+      });
+
+      step();
+
+      window.addEventListener('beforeunload', () => {
+        if (rafId) {
+          window.cancelAnimationFrame(rafId);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

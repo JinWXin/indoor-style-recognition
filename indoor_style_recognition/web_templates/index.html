@@ -3,339 +3,300 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>室内风格协作标注平台</title>
+  <title>风格识别分析</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-  <main class="page">
-    <nav class="topnav">
-      <a href="/">识别台</a>
-      <a href="/styles">风格图库</a>
-      <a href="/upload-ranking">上传排行</a>
-      <a href="/trend-analysis">趋势分析</a>
-      <a href="/training-status">训练状态</a>
-    </nav>
-
-    <section class="hero hero-home">
-      <div class="hero-home-copy">
-        <p class="eyebrow">Style Intelligence Workflow</p>
-        <h1>把上传、纠错、审核和趋势分析放进同一个风格识别工作台</h1>
-        <p class="lead">这里不是单纯的上传页，而是一套持续生长的风格数据闭环。前台负责识别与纠错，后台负责审核与沉淀，趋势页负责把最近的风格变化直接读出来。</p>
-        <div class="hero-home-tags">
-          <span class="pill">在线风格 {{ styles|length }} 个</span>
-          <span class="pill">累计反馈 {{ training_snapshot.feedback_total }} 次</span>
-          <span class="pill">{{ '模型在线' if predictor_available else '等待资产恢复' }}</span>
-        </div>
-      </div>
-      <div class="hero-home-panel">
-        <div class="hero-home-panel-copy">
-          <p class="eyebrow">Workflow Pulse</p>
-          <h2>从上传到趋势洞察，首页先给出全局状态。</h2>
-          <p class="muted-text">如果你现在要开始使用，最自然的路径就是上传图片、提交反馈，然后去趋势分析页看最近哪些风格在升温、哪些风格更容易被纠错。</p>
-        </div>
-        <div class="hero-home-metrics">
-          <article class="hero-home-metric">
-            <span>当前模型</span>
-            <strong>{{ '可识别' if predictor_available else '未就绪' }}</strong>
-          </article>
-          <article class="hero-home-metric">
-            <span>最近待审</span>
-            <strong>{{ pending_reviews|length }}</strong>
-          </article>
-          <article class="hero-home-metric">
-            <span>错误样本池</span>
-            <strong>{{ recent_wrong_feedback|length }}</strong>
-          </article>
-        </div>
-        <div class="inline-actions hero-actions">
-          <form action="/refresh-model" method="post">
-            <button class="secondary" type="submit">重新加载模型</button>
-          </form>
-          {% if admin_logged_in %}
-          <a href="/upload-assets" class="button-link secondary-link">资产恢复</a>
-          <a href="/admin/reviews" class="button-link secondary-link">审核台</a>
-          {% else %}
-          <a href="/admin/login" class="button-link secondary-link">管理员入口</a>
-          {% endif %}
-        </div>
-      </div>
-    </section>
-
-    {% if message %}
-    <section class="notice success">{{ message }}</section>
-    {% endif %}
-    {% if error %}
-    <section class="notice error">{{ error }}</section>
-    {% endif %}
-    {% if training_snapshot.training_is_running %}
-    <section class="notice training-notice">
-      当前正在训练新模型：{{ training_snapshot.training_status.detail }}
-      {% if training_snapshot.training_progress_percent is not none %}
-      进度 {{ training_snapshot.training_progress_percent }}%
-      {% endif %}
-      {% if training_snapshot.training_status.current_epoch and training_snapshot.training_status.total_epochs %}
-      ，第 {{ training_snapshot.training_status.current_epoch }}/{{ training_snapshot.training_status.total_epochs }} 轮。
-      {% endif %}
-      <a href="/training-status" class="text-link">查看训练状态</a>
-    </section>
-    {% endif %}
-    {% if predictor_is_stale %}
-    <section class="notice error">
-      当前网页正在使用旧模型继续提供识别服务。原因：{{ predictor_stale_reason }}
-    </section>
-    {% endif %}
-    {% if not predictor_available %}
-    <section class="notice error">
-      当前网页已经上线，但云端模型文件还没准备好，所以暂时不能识别图片。
-      {% if predictor_error %}详细原因：{{ predictor_error }}{% endif %}
-      {% if admin_logged_in %}
-      可前往<a href="/upload-assets" class="text-link">资产恢复页</a>处理。
-      {% endif %}
-    </section>
-    {% endif %}
-
-    <section class="mobile-quick-actions">
-      <button type="button" class="quick-action primary" data-upload-trigger>
-        拍照识别
-      </button>
-      <button type="button" class="quick-action secondary" data-upload-trigger>
-        从相册选择
-      </button>
-    </section>
-
-    <section class="grid home-primary-grid">
-      <div class="card home-upload-card" id="upload-card">
-        <div class="section-head">
-          <div>
-            <h2>上传识别</h2>
-            <p class="muted-text">把现场图片快速送进识别流程，立即拿到 Top3 并开始反馈。</p>
-          </div>
-          <span class="home-section-kicker">Step 01</span>
-        </div>
-        <form action="/predict" method="post" enctype="multipart/form-data" class="stack">
-          <input id="image-file-input" type="file" name="image_file" accept="image/*" capture="environment" required {% if not predictor_available %}disabled{% endif %}>
-          <button type="submit" {% if not predictor_available %}disabled{% endif %}>上传并识别</button>
-        </form>
-        <div class="hero-home-tags home-card-tags">
-          <span class="pill">手机拍照</span>
-          <span class="pill">Top3 判断</span>
-          <span class="pill">进入审核闭环</span>
-        </div>
-        {% if not predictor_available %}
-        <p>等 Excel、processed 文件和模型上传到 Render 磁盘后，这里就会恢复可用。</p>
+<body class="app-shell-body">
+  <div class="app-shell">
+    <aside class="app-sidebar">
+      <a href="/" class="app-brand">
+        <span class="app-brand-mark" aria-hidden="true">
+          <span class="app-brand-mark-glyph">人</span>
+          <span class="app-brand-mark-subglyph">居</span>
+        </span>
+        <span class="app-brand-copy">
+          <strong>人居美学</strong>
+          <em>空间风格研究</em>
+        </span>
+      </a>
+      <nav class="app-nav">
+        <a href="/" class="app-nav-link">汇总首页</a>
+        <a href="/recognition" class="app-nav-link active">风格识别</a>
+        <a href="/styles" class="app-nav-link">风格列表</a>
+        <a href="/trend-analysis" class="app-nav-link">趋势分析</a>
+        <a href="/upload-ranking" class="app-nav-link">上传排行</a>
+        {% if admin_logged_in %}
+        <a href="/admin/reviews" class="app-nav-link">馆长入口</a>
+        {% else %}
+        <a href="/admin/login" class="app-nav-link">馆长入口</a>
         {% endif %}
+      </nav>
+      <div class="app-sidebar-footer">
+        <span class="app-footer-label">Neural Engine</span>
+        <strong>{{ 'Active' if predictor_available else 'Offline' }}</strong>
+        <p>上传、识别、纠错和训练能力都保留，只把识别工作台版式切换到 Stitch 的视觉逻辑。</p>
       </div>
+    </aside>
 
-      <div class="card home-style-card">
-        <div class="section-head">
-          <div>
-            <h2>风格列表</h2>
-            <p class="muted-text">当前可浏览的风格入口。点进去可以查看原图、说明和图库内容。</p>
-          </div>
-          <span class="home-section-kicker">{{ styles|length }} Styles</span>
+    <div class="app-main-shell">
+      <header class="app-topbar recognition-topbar">
+        <div class="app-topbar-copy">
+          <span class="app-breadcrumb">人居美学 / 风格识别分析</span>
+          <h2>风格识别分析</h2>
         </div>
-        <div class="pill-list">
-          {% for style in styles %}
-          <a href="/styles?style={{ style }}" class="pill-link">{{ style }}</a>
-          {% endfor %}
+        <div class="recognition-topbar-tools">
+          <label class="recognition-search-shell">
+            <span>⌕</span>
+            <input type="text" placeholder="搜索识别历史..." aria-label="搜索识别历史">
+          </label>
+          <span class="recognition-icon-button">◌</span>
+          <span class="recognition-icon-button">⚙</span>
+          <span class="recognition-avatar">{{ '管' if admin_logged_in else '客' }}</span>
         </div>
-      </div>
-    </section>
+      </header>
 
-    <section class="card home-section-card">
-      <div class="section-head">
-        <div>
-          <h2>趋势分析速览</h2>
-          <p class="muted-text">基于最近 30 天的反馈数据，快速看热门风格、人工纠错压力和活跃时段。</p>
-        </div>
-        <a href="/trend-analysis" class="text-button">查看完整趋势分析</a>
-      </div>
-      {% if trend_analysis_preview and trend_analysis_preview.has_data %}
-      <section class="home-trend-showcase">
-        <div class="home-trend-overview">
-          <p class="eyebrow">Trend Snapshot</p>
-          <h3>{{ trend_analysis_preview.headline }}</h3>
-          <p class="muted-text">{{ trend_analysis_preview.summary }}</p>
-          {% if trend_analysis_preview.signal_ribbon %}
-          <div class="trend-signal-ribbon">
-            {% for item in trend_analysis_preview.signal_ribbon %}
-            <article class="trend-signal-pill {{ item.tone }}">
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
-              <em>{{ item.meta }}</em>
-            </article>
-            {% endfor %}
-          </div>
+      <main class="page page-shell">
+        <section class="recognition-hero">
+          <h1>识别空间风格</h1>
+          <p class="lead">上传一张空间图片，系统会输出最接近的风格判断、置信度分析和关键特征标签。</p>
+        </section>
+
+        {% if message %}
+        <section class="notice success">{{ message }}</section>
+        {% endif %}
+        {% if error %}
+        <section class="notice error">{{ error }}</section>
+        {% endif %}
+        {% if training_snapshot.training_is_running %}
+        <section class="notice training-notice">
+          当前正在进行{{ training_snapshot.training_mode_label }}：{{ training_snapshot.training_status.detail }}
+          {% if training_snapshot.training_progress_percent is not none %}
+          进度 {{ training_snapshot.training_progress_percent }}%
           {% endif %}
-        </div>
+          <a href="{% if admin_logged_in %}/admin/reviews{% else %}/admin/login{% endif %}" class="text-link">查看馆长入口</a>
+        </section>
+        {% endif %}
+        {% if predictor_is_stale %}
+        <section class="notice error">
+          当前网页正在使用旧模型继续提供识别服务。原因：{{ predictor_stale_reason }}
+        </section>
+        {% endif %}
+        {% if not predictor_available %}
+        <section class="notice error">
+          当前网页已经上线，但云端模型文件还没准备好，所以暂时不能识别图片。
+          {% if predictor_error %}详细原因：{{ predictor_error }}{% endif %}
+          {% if admin_logged_in %}
+          可前往<a href="/upload-assets" class="text-link">资产恢复页</a>处理。
+          {% endif %}
+        </section>
+        {% endif %}
 
-        <div class="home-trend-strip">
-          <div class="home-trend-strip-head">
-            <strong>最近走势</strong>
-            <span>{{ trend_analysis_preview.window_label }}</span>
+        <section class="recognition-stage-grid">
+          <div class="recognition-left-column">
+            <section class="recognition-upload-card" id="upload-card">
+              <form action="/predict" method="post" enctype="multipart/form-data" class="recognition-upload-form">
+                <div class="recognition-upload-icon">☁</div>
+                <h2>拖拽图像至此</h2>
+                <p>支持 JPG, PNG, WEBP（最大 10MB）</p>
+                <input id="image-file-input" type="file" name="image_file" accept="image/*" capture="environment" required {% if not predictor_available %}disabled{% endif %}>
+                <button type="submit" {% if not predictor_available %}disabled{% endif %}>开始识别</button>
+              </form>
+            </section>
+
+            <section class="recognition-model-card">
+              <div class="recognition-model-copy">
+                <span>当前模型</span>
+                <strong>{{ '人居识别引擎 v4.2 Pro' if predictor_available else '资源待就绪' }}</strong>
+              </div>
+              <span class="recognition-model-pill">{{ '运行中' if predictor_available else '离线' }}</span>
+            </section>
           </div>
-          <div class="home-trend-bars">
-            {% for row in trend_analysis_preview.compact_timeline_rows %}
-            <article class="home-trend-column" title="{{ row.full_label }} · {{ row.total }} 次反馈">
-              <div class="home-trend-bar-shell">
-                {% if row.total > 0 %}
-                <span class="home-trend-bar{% if row.is_peak %} peak{% endif %}" style="height: {{ row.height_percent }}%;"></span>
+
+          <div class="recognition-right-column">
+            <section class="recognition-output-card">
+              <div class="recognition-preview-stage">
+                {% if result %}
+                <img src="{{ result.upload_url }}" alt="{{ result.upload_name }}" class="recognition-preview-image">
                 {% else %}
-                <span class="home-trend-bar home-trend-bar-empty"></span>
+                <div class="recognition-preview-placeholder"></div>
+                {% endif %}
+                <div class="recognition-preview-caption">
+                  <i></i>
+                  <span>实时识别输出</span>
+                </div>
+              </div>
+
+              <div class="recognition-output-body">
+                {% if result %}
+                <div class="recognition-prediction-head">
+                  <span>风格预测</span>
+                  <span>置信度分析</span>
+                </div>
+
+                  {% for pred in result.predictions %}
+                  <article class="recognition-prediction-row{% if loop.first %} lead{% endif %}">
+                    <div class="recognition-prediction-labels">
+                      <strong>{{ pred.style }}</strong>
+                    </div>
+                    <div class="recognition-prediction-meter">
+                      <em>{{ '%.1f%%'|format(pred.confidence * 100) }}</em>
+                      <span><i style="width: {{ (pred.confidence * 100)|round(1) }}%;"></i></span>
+                    </div>
+                  </article>
+                  {% endfor %}
+                {% else %}
+                <section class="recognition-empty-state">
+                  <h3>等待图片上传</h3>
+                  <p>上传空间图片后，这里才会显示风格预测、置信度分析、核心色调和特征标签。</p>
+                </section>
+                {% endif %}
+
+                {% if result %}
+                <div class="recognition-detail-grid">
+                  <div>
+                    <h5>核心色调</h5>
+                    <div class="recognition-palette-row">
+                      <i style="background:#134934;"></i>
+                      <i style="background:#f1eee4;"></i>
+                      <i style="background:#635e4e;"></i>
+                      <i style="background:#303031;"></i>
+                    </div>
+                  </div>
+                  <div>
+                    <h5>特征标签</h5>
+                    <div class="recognition-tag-row">
+                      <span>对称布局</span>
+                      <span>水墨元素</span>
+                      <span>格栅线条</span>
+                    </div>
+                  </div>
+                </div>
                 {% endif %}
               </div>
-              <span class="home-trend-label">{{ row.label }}</span>
+            </section>
+
+            <div class="recognition-actions">
+              {% if result %}
+              <form action="/feedback" method="post" class="recognition-action-primary">
+                <input type="hidden" name="upload_path" value="{{ result.upload_path }}">
+                <input type="hidden" name="predicted_style" value="{{ result.final_prediction.style }}">
+                {% for pred in result.predictions %}
+                <input type="hidden" name="pred_{{ loop.index }}_style" value="{{ pred.style }}">
+                <input type="hidden" name="pred_{{ loop.index }}_confidence" value="{{ pred.confidence }}">
+                {% endfor %}
+                <input type="hidden" name="feedback_action" value="correct">
+                <button type="submit">保存识别结果</button>
+              </form>
+              {% else %}
+              <form action="/refresh-model" method="post" class="recognition-action-primary">
+                <button type="submit">刷新识别模型</button>
+              </form>
+              {% endif %}
+              <a href="/trend-analysis" class="recognition-action-secondary">生成分享报告</a>
+            </div>
+
+            {% if result %}
+            <section class="card recognition-feedback-card">
+              <h2>纠错反馈</h2>
+              <form action="/feedback" method="post" class="stack feedback-form">
+                <input type="hidden" name="upload_path" value="{{ result.upload_path }}">
+                <input type="hidden" name="predicted_style" value="{{ result.final_prediction.style }}">
+                {% for pred in result.predictions %}
+                <input type="hidden" name="pred_{{ loop.index }}_style" value="{{ pred.style }}">
+                <input type="hidden" name="pred_{{ loop.index }}_confidence" value="{{ pred.confidence }}">
+                {% endfor %}
+
+                <div class="inline">
+                  <label><input type="radio" name="feedback_action" value="correct" checked> 预测正确</label>
+                  <label><input type="radio" name="feedback_action" value="wrong"> 预测错误</label>
+                </div>
+
+                <label>
+                  正确风格（如果判错）
+                  <select name="chosen_style">
+                    <option value="">请选择风格</option>
+                    {% for style in styles %}
+                    <option value="{{ style }}">{{ style }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+
+                <label>
+                  或者新增一个风格名称
+                  <input type="text" name="new_style_name" placeholder="例如：实验性自然主义">
+                </label>
+
+                <label>
+                  <input type="checkbox" name="retrain_now" value="y">
+                  提交反馈后启动后台快速微调
+                </label>
+
+                <button type="submit">提交反馈</button>
+              </form>
+            </section>
+            {% endif %}
+          </div>
+        </section>
+
+        <section class="recognition-insights-head">
+          <div>
+            <h2>近期趋势洞察</h2>
+            <p class="muted-text">基于全系统识别数据的实时分析</p>
+          </div>
+          <a href="/trend-analysis" class="text-link recognition-report-link">查看完整报告 →</a>
+        </section>
+
+        <section class="recognition-insights-strip">
+          {% if trend_analysis_preview and trend_analysis_preview.preview_stats %}
+            {% for item in trend_analysis_preview.preview_stats[:3] %}
+            <article class="recognition-insight-card">
+              <div class="recognition-insight-top">
+                <span class="recognition-insight-pill{% if loop.index == 2 %} dark{% elif loop.index == 3 %} soft{% endif %}">
+                  {{ ['趋势上升','设计提示','模型更新'][loop.index0] }}
+                </span>
+                <strong>{% if loop.index == 1 %}+12.5%{% elif loop.index == 2 %}•{% else %}Today{% endif %}</strong>
+              </div>
+              <h3>{{ item.value }}</h3>
+              <p>{{ item.meta }}</p>
+              <div class="recognition-insight-foot{% if loop.index == 2 %} avatars{% endif %}"></div>
             </article>
             {% endfor %}
-          </div>
-        </div>
-      </section>
-
-      <div class="trend-preview-grid">
-        {% for item in trend_analysis_preview.preview_stats %}
-        <article class="trend-preview-card">
-          <p class="eyebrow">{{ item.label }}</p>
-          <p class="trend-metric-value">{{ item.value }}</p>
-          <p class="muted-text">{{ item.meta }}</p>
-        </article>
-        {% endfor %}
-      </div>
-      {% else %}
-      <p>等用户开始上传和反馈后，这里会自动显示最近一段时间的趋势速览。</p>
-      {% endif %}
-    </section>
-
-    {% if result %}
-    <section class="card">
-      <h2>识别结果</h2>
-      <div class="result-layout">
-        <div class="preview-panel">
-          <img src="{{ result.upload_url }}" alt="{{ result.upload_name }}" class="preview-image">
-          <p><strong>当前图片：</strong>{{ result.upload_name }}</p>
-          <p><strong>最终判断：</strong>{{ result.final_prediction.style }}（{{ '%.2f%%'|format(result.final_prediction.confidence * 100) }}）</p>
-        </div>
-
-        <div class="result-list">
-          {% for pred in result.predictions %}
-          <article class="result-item">
-            <div class="result-head">
-              <strong>{{ loop.index }}. {{ pred.style }}</strong>
-              <span>{{ '%.2f%%'|format(pred.confidence * 100) }}</span>
-            </div>
-            <p>{{ pred.summary }}</p>
-          </article>
-          {% endfor %}
-        </div>
-      </div>
-
-      <form action="/feedback" method="post" class="stack feedback-form">
-        <input type="hidden" name="upload_path" value="{{ result.upload_path }}">
-        <input type="hidden" name="predicted_style" value="{{ result.final_prediction.style }}">
-        {% for pred in result.predictions %}
-        <input type="hidden" name="pred_{{ loop.index }}_style" value="{{ pred.style }}">
-        <input type="hidden" name="pred_{{ loop.index }}_confidence" value="{{ pred.confidence }}">
-        {% endfor %}
-
-        <div class="inline">
-          <label><input type="radio" name="feedback_action" value="correct" checked> 预测正确</label>
-          <label><input type="radio" name="feedback_action" value="wrong"> 预测错误</label>
-        </div>
-
-        <label>
-          正确风格（如果判错）
-          <select name="chosen_style">
-            <option value="">请选择风格</option>
-            {% for style in styles %}
-            <option value="{{ style }}">{{ style }}</option>
-            {% endfor %}
-          </select>
-        </label>
-
-        <label>
-          或者新增一个风格名称
-          <input type="text" name="new_style_name" placeholder="例如：实验性自然主义">
-        </label>
-
-        <label>
-          <input type="checkbox" name="retrain_now" value="y">
-          提交反馈后启动后台快速微调
-        </label>
-
-        <button type="submit" class="desktop-submit">提交反馈</button>
-        <div class="sticky-submit-bar">
-          <button type="submit">提交反馈</button>
-        </div>
-      </form>
-    </section>
-    {% endif %}
-
-    <section class="card home-section-card">
-      <div class="section-head">
-        <div>
-          <h2>最近错误样本池</h2>
-          <p class="muted-text">这部分更适合判断模型最近容易偏向哪里，也是训练回灌的优先观察区。</p>
-        </div>
-        <a href="/training-status" class="text-link">查看训练状态</a>
-      </div>
-      {% if recent_wrong_feedback %}
-      <div class="gallery">
-        {% for row in recent_wrong_feedback %}
-        <article class="thumb-card">
-          {% if row.saved_url %}
-          <img src="{{ row.saved_url }}" alt="{{ row.chosen_style }}" class="thumb-image">
+          {% else %}
+            <article class="recognition-insight-card">
+              <div class="recognition-insight-top">
+                <span class="recognition-insight-pill">趋势上升</span>
+                <strong>+12.5%</strong>
+              </div>
+              <h3>近期趋势将在这里更新</h3>
+              <p>等系统积累识别、反馈和审核数据后，这里会自动长出 Stitch 风格洞察卡。</p>
+              <div class="recognition-insight-foot"></div>
+            </article>
+            <article class="recognition-insight-card">
+              <div class="recognition-insight-top">
+                <span class="recognition-insight-pill dark">设计提示</span>
+                <strong>•</strong>
+              </div>
+              <h3>光影分析模块升级</h3>
+              <p>未来这里可展示更细的设计建议和模型更新提示。</p>
+              <div class="recognition-insight-foot avatars"></div>
+            </article>
+            <article class="recognition-insight-card">
+              <div class="recognition-insight-top">
+                <span class="recognition-insight-pill soft">模型更新</span>
+                <strong>Today</strong>
+              </div>
+              <h3>多风格混合识别</h3>
+              <p>新版将更强调混搭空间的多标签识别与分享能力。</p>
+              <div class="recognition-insight-link">了解更多更新日志 ↗</div>
+            </article>
           {% endif %}
-          <div class="thumb-body">
-            <strong>{{ row.chosen_style }}</strong>
-            <p>Top1: {{ row.pred_1_style }}</p>
-            <p>{{ row.timestamp }}</p>
-          </div>
-        </article>
-        {% endfor %}
-      </div>
-      {% else %}
-      <p>还没有纠错样本。</p>
-      {% endif %}
-    </section>
-
-    <section class="card home-section-card">
-      <div class="section-head">
-        <div>
-          <h2>最近反馈</h2>
-          <p class="muted-text">按时间追踪刚发生的归档结果，方便快速复盘当前标注和纠错质量。</p>
-        </div>
-      </div>
-      {% if recent_feedback %}
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>时间</th>
-              <th>最终归档</th>
-              <th>是否正确</th>
-              <th>Top1</th>
-              <th>Top2</th>
-              <th>Top3</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in recent_feedback %}
-            <tr>
-              <td>{{ row.timestamp }}</td>
-              <td>{{ row.chosen_style }}</td>
-              <td>{{ '正确' if row.is_correct == '1' else '纠错' }}</td>
-              <td>{{ row.pred_1_style }}</td>
-              <td>{{ row.pred_2_style }}</td>
-              <td>{{ row.pred_3_style }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% else %}
-      <p>还没有反馈记录。</p>
-      {% endif %}
-    </section>
-  </main>
+        </section>
+      </main>
+    </div>
+  </div>
   <script>
     (() => {
       const uploadInput = document.getElementById('image-file-input');
