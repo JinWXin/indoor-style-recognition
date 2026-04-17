@@ -1865,6 +1865,10 @@ body.app-shell-body h4 {
   min-height: 100vh;
 }
 
+.app-shell-body {
+  overflow-x: hidden;
+}
+
 .app-sidebar {
   width: 252px;
   flex: 0 0 252px;
@@ -2360,23 +2364,45 @@ tbody tr:last-child td {
 
 @media (max-width: 760px) {
   .app-sidebar {
-    padding: 18px 14px;
-    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    padding: 14px 12px 12px;
+    gap: 12px;
+    background: rgba(251, 249, 248, 0.96);
+    backdrop-filter: blur(18px);
+    border-radius: 0 0 18px 18px;
   }
 
   .app-nav {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    grid-template-columns: none;
+    gap: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+
+  .app-nav::-webkit-scrollbar {
+    display: none;
   }
 
   .app-nav-link {
+    flex: 0 0 auto;
     min-height: 42px;
     padding: 10px 12px;
     border-radius: 14px;
     font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .app-sidebar-footer {
+    display: none;
   }
 
   .app-main-shell {
-    padding: 12px 12px 28px;
+    padding: 10px 10px 24px;
   }
 
   .app-topbar {
@@ -2395,6 +2421,20 @@ tbody tr:last-child td {
 
   .app-topbar-status {
     justify-content: flex-start;
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  .app-topbar-status::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-brand {
+    gap: 12px;
+    padding: 0 2px 2px;
   }
 
   .hero,
@@ -4086,6 +4126,14 @@ tbody tr:last-child td {
     font-size: 42px;
   }
 
+  .dashboard-hero-copy p {
+    font-size: 16px;
+  }
+
+  .dashboard-hero-action {
+    width: 100%;
+  }
+
   .dashboard-metric-card,
   .dashboard-module-tile,
   .dashboard-summary-panel,
@@ -4094,7 +4142,94 @@ tbody tr:last-child td {
     padding: 20px;
   }
 
+  .dashboard-metric-main strong,
+  .dashboard-metric-card-warm strong,
+  .dashboard-metric-card-accent strong,
+  .dashboard-summary-panel strong {
+    font-size: 42px;
+  }
+
+  .dashboard-module-feature {
+    min-height: 250px;
+  }
+
+  .dashboard-module-strip {
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .dashboard-module-slide {
+    flex-basis: 180px;
+  }
+
+  .dashboard-module-copy {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .dashboard-module-copy h3 {
+    font-size: 24px;
+  }
+
+  .dashboard-module-copy p {
+    margin-bottom: 12px;
+    font-size: 13px;
+  }
+
   .dashboard-feed-card {
+    grid-template-columns: 1fr;
+  }
+
+  .recognition-topbar-tools,
+  .dashboard-topbar-tools {
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  .recognition-topbar-tools::-webkit-scrollbar,
+  .dashboard-topbar-tools::-webkit-scrollbar {
+    display: none;
+  }
+
+  .recognition-model-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .recognition-preview-stage,
+  .recognition-preview-image,
+  .recognition-preview-placeholder {
+    min-height: 220px;
+    height: 220px;
+  }
+
+  .recognition-prediction-head {
+    font-size: 11px;
+  }
+
+  .recognition-palette-row i {
+    width: 36px;
+    height: 36px;
+  }
+
+  .trend-report-refresh {
+    width: 100%;
+  }
+
+  .trend-report-filter-form {
+    width: 100%;
+  }
+
+  .trend-report-filter-form select,
+  .trend-report-filter-form button {
+    width: 100%;
+  }
+
+  .ranking-summary-grid {
     grid-template-columns: 1fr;
   }
 }
