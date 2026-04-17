@@ -1490,6 +1490,7 @@ def build_context(skip_predictor_probe=False, **extra):
         pending_reviews.append(row)
 
     base = {
+        'asset_version': str(int((STATIC_DIR / 'style.css').stat().st_mtime)) if (STATIC_DIR / 'style.css').exists() else '1',
         'styles': list_available_styles(),
         'recent_feedback': load_recent_feedback_safe(limit=15),
         'recent_wrong_feedback': recent_wrong_feedback,
