@@ -64,6 +64,7 @@ ASSET_UPLOAD_DIR = Path(PROCESSED_DIR) / 'asset_uploads'
 ASSET_RESTORE_STATUS_PATH = Path(PROCESSED_DIR) / 'asset_restore_status.json'
 REVIEW_QUEUE_DIR = Path(PROCESSED_DIR) / 'review_queue'
 REVIEW_IMAGE_DIR = REVIEW_QUEUE_DIR / 'images'
+SUGGESTION_LOG_PATH = Path(PROCESSED_DIR) / 'suggestions_log.csv'
 
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -630,6 +631,35 @@ def load_pending_reviews_safe(limit=50):
         return load_pending_reviews(limit=limit, status='pending')
     except Exception:
         return []
+
+
+def load_recent_suggestions_safe(limit=20):
+    if not SUGGESTION_LOG_PATH.exists():
+        return []
+    try:
+        with open(SUGGESTION_LOG_PATH, 'r', encoding='utf-8', newline='') as handle:
+            rows = list(csv.DictReader(handle))
+        rows.reverse()
+        return rows[:limit]
+    except Exception:
+        return []
+
+
+def append_suggestion_log(nickname, contact, content, page_source):
+    SUGGESTION_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = ['timestamp', 'nickname', 'contact', 'content', 'page_source']
+    exists = SUGGESTION_LOG_PATH.exists()
+    with open(SUGGESTION_LOG_PATH, 'a', encoding='utf-8', newline='') as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        writer.writerow({
+            'timestamp': datetime.now().isoformat(timespec='seconds'),
+            'nickname': nickname,
+            'contact': contact,
+            'content': content,
+            'page_source': page_source,
+        })
 
 
 UPLOAD_RANKING_WINDOWS = {
@@ -1494,6 +1524,7 @@ def build_context(skip_predictor_probe=False, **extra):
         'styles': list_available_styles(),
         'recent_feedback': load_recent_feedback_safe(limit=15),
         'recent_wrong_feedback': recent_wrong_feedback,
+        'recent_suggestions': load_recent_suggestions_safe(limit=10),
         'pending_reviews': pending_reviews,
         'training_snapshot': build_training_snapshot(),
         'predictor_is_stale': predictor.is_stale if predictor is not None else False,
@@ -1667,6 +1698,53 @@ async def recognition(request: Request):
         context=build_context(
             admin_logged_in=is_admin_authenticated(request),
             trend_analysis_preview=build_trend_analysis_snapshot(window_key='30d'),
+        ),
+    )
+
+
+@app.get('/suggestions', response_class=HTMLResponse)
+async def suggestions_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name='suggestions.html',
+        context=build_context(
+            admin_logged_in=is_admin_authenticated(request),
+        ),
+    )
+
+
+@app.post('/suggestions', response_class=HTMLResponse)
+async def submit_suggestion(
+    request: Request,
+    nickname: str = Form(''),
+    contact: str = Form(''),
+    content: str = Form(...),
+    page_source: str = Form(''),
+):
+    suggestion_text = (content or '').strip()
+    if not suggestion_text:
+        return templates.TemplateResponse(
+            request=request,
+            name='suggestions.html',
+            context=build_context(
+                admin_logged_in=is_admin_authenticated(request),
+                error='请先填写你的建议内容。',
+            ),
+            status_code=400,
+        )
+
+    append_suggestion_log(
+        nickname=(nickname or '').strip() or '匿名用户',
+        contact=(contact or '').strip(),
+        content=suggestion_text,
+        page_source=(page_source or '').strip(),
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name='suggestions.html',
+        context=build_context(
+            admin_logged_in=is_admin_authenticated(request),
+            message='意见反馈已收到，我们会在后续版本里持续整理和跟进。',
         ),
     )
 

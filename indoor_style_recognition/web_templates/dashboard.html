@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>人居美学 - 数字化策展核心</title>
+  <title>人居美学研究馆 - 设计风格总览</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
           <span class="app-brand-mark-subglyph">居</span>
         </span>
         <span class="app-brand-copy">
-          <strong>人居美学</strong>
+          <strong>人居美学研究馆</strong>
           <em>空间风格研究</em>
         </span>
       </a>
@@ -28,6 +28,7 @@
         <a href="/styles" class="app-nav-link">风格列表</a>
         <a href="/trend-analysis" class="app-nav-link">趋势分析</a>
         <a href="/upload-ranking" class="app-nav-link">上传排行</a>
+        <a href="/suggestions" class="app-nav-link">意见反馈</a>
         {% if admin_logged_in %}
         <a href="/admin/reviews" class="app-nav-link">馆长入口</a>
         {% else %}
@@ -37,7 +38,7 @@
       <div class="app-sidebar-footer dashboard-sidebar-footer">
         <span class="app-footer-label">实时分析</span>
         <strong>近 30 天</strong>
-        <p>把时间趋势、升温风格和预测洞察整理成更接近 Stitch 的总控首页。</p>
+        <p>功能还会持续扩展，想要的新能力可以直接写进意见反馈，我们会按使用场景继续迭代。</p>
       </div>
     </aside>
 
@@ -57,10 +58,10 @@
       <main class="page page-shell">
         <section class="dashboard-hero-block">
           <div class="dashboard-hero-copy">
-            <h1>洞察设计演进</h1>
-            <p>欢迎回到人居美学。目前 AI 模型已完成 {{ training_snapshot.processed_rows }} 个设计案例的深度识别，准确闭环、审核状态与趋势洞察都汇总在这里。</p>
+            <h1>洞察设计风格</h1>
+            <p>具备风格识别、风格详解、风格图下载、趋势分析、地毯详解等功能，相关功能在不断研究开发中，想要什么功能写在意见栏，马上就能拥有。</p>
           </div>
-          <a href="/recognition" class="dashboard-hero-action">开始识别新风格</a>
+          <a href="/recognition" class="dashboard-hero-action">开始识别</a>
         </section>
 
         {% if message %}
@@ -168,7 +169,7 @@
           <div class="dashboard-feed-column">
             <div class="dashboard-section-head dashboard-section-head-tight">
               <h2>最新动态</h2>
-              <a href="/training-status" class="text-link">查看全部</a>
+              <a href="/upload-ranking" class="text-link">查看全部</a>
             </div>
 
             <div class="dashboard-feed-list">

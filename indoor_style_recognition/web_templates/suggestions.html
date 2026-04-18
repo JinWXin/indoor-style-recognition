@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>意见反馈 - 人居美学研究馆</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
+</head>
+<body class="app-shell-body">
+  <div class="app-shell">
+    <aside class="app-sidebar">
+      <a href="/" class="app-brand">
+        <span class="app-brand-mark" aria-hidden="true">
+          <span class="app-brand-mark-glyph">人</span>
+          <span class="app-brand-mark-subglyph">居</span>
+        </span>
+        <span class="app-brand-copy">
+          <strong>人居美学研究馆</strong>
+          <em>空间风格研究</em>
+        </span>
+      </a>
+      <nav class="app-nav">
+        <a href="/" class="app-nav-link">汇总首页</a>
+        <a href="/recognition" class="app-nav-link">风格识别</a>
+        <a href="/styles" class="app-nav-link">风格列表</a>
+        <a href="/trend-analysis" class="app-nav-link">趋势分析</a>
+        <a href="/upload-ranking" class="app-nav-link">上传排行</a>
+        <a href="/suggestions" class="app-nav-link active">意见反馈</a>
+        {% if admin_logged_in %}
+        <a href="/admin/reviews" class="app-nav-link">馆长入口</a>
+        {% else %}
+        <a href="/admin/login" class="app-nav-link">馆长入口</a>
+        {% endif %}
+      </nav>
+      <div class="app-sidebar-footer">
+        <span class="app-footer-label">Feature Loop</span>
+        <strong>意见直达</strong>
+        <p>想要什么功能、哪里不好用、哪一页想继续优化，都可以直接写在这里。</p>
+      </div>
+    </aside>
+
+    <div class="app-main-shell">
+      <header class="app-topbar">
+        <div class="app-topbar-copy">
+          <span class="app-breadcrumb">人居美学研究馆 / 意见反馈</span>
+          <h2>意见反馈</h2>
+        </div>
+        <div class="app-topbar-status">
+          <span class="app-status-chip">持续迭代中</span>
+          <a href="/recognition" class="app-header-link">开始识别</a>
+        </div>
+      </header>
+
+      <main class="page page-shell">
+        <section class="suggestion-hero">
+          <div class="suggestion-hero-copy">
+            <h1>把你想要的功能直接告诉我们</h1>
+            <p>无论是风格识别、风格图下载、趋势分析，还是新的空间品类研究，只要你写下来，我们都会持续整理并纳入后续版本规划。</p>
+          </div>
+        </section>
+
+        {% if message %}
+        <section class="notice success">{{ message }}</section>
+        {% endif %}
+        {% if error %}
+        <section class="notice error">{{ error }}</section>
+        {% endif %}
+
+        <section class="suggestion-layout">
+          <section class="card suggestion-form-card">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Feedback Form</p>
+                <h2>提交一条意见</h2>
+              </div>
+            </div>
+
+            <form action="/suggestions" method="post" class="suggestion-form">
+              <div class="suggestion-form-grid">
+                <label>
+                  称呼
+                  <input type="text" name="nickname" placeholder="例如：王老师">
+                </label>
+                <label>
+                  联系方式
+                  <input type="text" name="contact" placeholder="邮箱、微信或手机号">
+                </label>
+              </div>
+
+              <label>
+                来源页面
+                <input type="text" name="page_source" placeholder="例如：首页 / 风格识别 / 趋势分析">
+              </label>
+
+              <label>
+                你的建议
+                <textarea name="content" rows="7" placeholder="请直接写下你希望增加的功能、要改的内容，或者你觉得哪里不好用。"></textarea>
+              </label>
+
+              <div class="inline-actions">
+                <button type="submit">提交意见</button>
+                <a href="/recognition" class="button-link secondary-link">先去识别</a>
+              </div>
+            </form>
+          </section>
+
+          <aside class="suggestion-side-stack">
+            <section class="card suggestion-note-card">
+              <p class="eyebrow">What To Write</p>
+              <h2>可以写什么</h2>
+              <ul class="suggestion-tip-list">
+                <li>你想增加的新功能</li>
+                <li>哪个页面的排版还不够好</li>
+                <li>手机界面哪里不方便</li>
+                <li>你常用但现在还没有的研究入口</li>
+              </ul>
+            </section>
+
+            <section class="card suggestion-recent-card">
+              <p class="eyebrow">Recent Ideas</p>
+              <h2>最近意见</h2>
+              <div class="suggestion-recent-list">
+                {% if recent_suggestions %}
+                  {% for item in recent_suggestions[:5] %}
+                  <article class="suggestion-recent-item">
+                    <div class="suggestion-recent-head">
+                      <strong>{{ item.nickname or '匿名用户' }}</strong>
+                      <span>{{ item.timestamp }}</span>
+                    </div>
+                    <p>{{ item.content }}</p>
+                    {% if item.page_source %}
+                    <em>{{ item.page_source }}</em>
+                    {% endif %}
+                  </article>
+                  {% endfor %}
+                {% else %}
+                  <article class="suggestion-recent-item">
+                    <div class="suggestion-recent-head">
+                      <strong>等待第一条意见</strong>
+                    </div>
+                    <p>欢迎把你想要的新功能、文案修改或页面想法直接写在这里。</p>
+                  </article>
+                {% endif %}
+              </div>
+            </section>
+          </aside>
+        </section>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
