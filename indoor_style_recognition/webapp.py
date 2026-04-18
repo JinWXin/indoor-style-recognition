@@ -552,7 +552,7 @@ def training_mode_label(mode: str) -> str:
     return {
         'incremental': '快速微调',
         'full': '完整重训',
-    }.get(mode, '未指定')
+    }.get(mode, '未开始')
 
 
 def training_stage_label(stage: str) -> str:
@@ -1200,17 +1200,24 @@ def build_trend_analysis_snapshot(window_key='30d'):
             'label': '当前最热风格',
             'value': dominant_style['style'],
             'meta': f"{dominant_style['ratio_percent']}% · {dominant_style['count']} 次",
+            'preview_images': list_style_preview_images(dominant_style['style'], limit=1),
         })
     preview_stats.append({
         'label': '人工纠错占比',
         'value': f'{correction_rate_percent:.1f}%',
         'meta': window_config['label'],
+        'preview_images': list_style_preview_images(correction_rows[0]['style'], limit=1) if correction_rows else (
+            list_style_preview_images(dominant_style['style'], limit=1) if dominant_style else []
+        ),
     })
     if peak_bucket:
         preview_stats.append({
             'label': '最活跃时段',
             'value': peak_bucket['label'],
             'meta': f"{peak_bucket['total']} 次反馈",
+            'preview_images': list_style_preview_images(surging_rows[0]['style'], limit=1) if surging_rows else (
+                list_style_preview_images(dominant_style['style'], limit=1) if dominant_style else []
+            ),
         })
 
     headline = '最近的用户偏好正在分散流动。'
@@ -2079,7 +2086,7 @@ async def admin_login_submit(
         context=build_context(
             skip_predictor_probe=True,
             admin_logged_in=is_admin_authenticated(request),
-            error='馆长密码不正确，请重试。',
+            error='管理员密码不正确，请重试。',
         ),
         status_code=401,
     )

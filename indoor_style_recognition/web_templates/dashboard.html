@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>人居美学研究馆 - 设计风格总览</title>
+  <title>人居美学研究 - 设计风格总览</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
           <span class="app-brand-mark-subglyph">居</span>
         </span>
         <span class="app-brand-copy">
-          <strong>人居美学研究馆</strong>
+          <strong>人居美学研究</strong>
           <em>空间风格研究</em>
         </span>
       </a>
@@ -30,9 +30,9 @@
         <a href="/upload-ranking" class="app-nav-link">上传排行</a>
         <a href="/suggestions" class="app-nav-link">意见反馈</a>
         {% if admin_logged_in %}
-        <a href="/admin/reviews" class="app-nav-link">馆长入口</a>
+        <a href="/admin/reviews" class="app-nav-link">管理员入口</a>
         {% else %}
-        <a href="/admin/login" class="app-nav-link">馆长入口</a>
+        <a href="/admin/login" class="app-nav-link">管理员入口</a>
         {% endif %}
       </nav>
       <div class="app-sidebar-footer dashboard-sidebar-footer">
@@ -45,12 +45,10 @@
     <div class="app-main-shell">
       <header class="app-topbar dashboard-topbar">
         <div class="app-topbar-copy">
-          <span class="app-breadcrumb">人居美学 / 仪表盘</span>
-          <h2>仪表盘</h2>
+          <span class="app-breadcrumb">人居美学 / 总览</span>
+          <h2>总览</h2>
         </div>
         <div class="dashboard-topbar-tools">
-          <span class="dashboard-icon-button">•</span>
-          <span class="dashboard-icon-button">⚙</span>
           <span class="dashboard-admin-badge">{{ '管理员' if admin_logged_in else '访客' }}</span>
         </div>
       </header>
@@ -72,11 +70,15 @@
         {% endif %}
         {% if training_snapshot.training_is_running %}
         <section class="notice training-notice">
+          {% if training_snapshot.training_status.mode in ['incremental', 'full'] %}
           当前正在进行{{ training_snapshot.training_mode_label }}：{{ training_snapshot.training_status.detail }}
+          {% else %}
+          当前训练进行中：{{ training_snapshot.training_status.detail }}
+          {% endif %}
           {% if training_snapshot.training_progress_percent is not none %}
           进度 {{ training_snapshot.training_progress_percent }}%
           {% endif %}
-          <a href="{% if admin_logged_in %}/admin/reviews{% else %}/admin/login{% endif %}" class="text-link">查看馆长入口</a>
+          <a href="{% if admin_logged_in %}/admin/reviews{% else %}/admin/login{% endif %}" class="text-link">查看管理员入口</a>
         </section>
         {% endif %}
 
@@ -141,7 +143,7 @@
             <div class="dashboard-module-copy">
               <span class="dashboard-card-eyebrow">风格图谱</span>
               <h3>滚动风格图</h3>
-              <p>横向查看最近识别、纠错和待审核样本，快速进入风格识别或馆长入口。</p>
+              <p>横向查看最近识别、纠错和待审核样本，快速进入风格识别或管理员入口。</p>
               <a href="/recognition" class="dashboard-module-cta">开始识别</a>
             </div>
           </section>
@@ -222,7 +224,7 @@
               <h2>审核池摘要</h2>
               <strong>{{ pending_reviews|length }}</strong>
               <p>项待处理审核，建议优先处理高置信度项。</p>
-              <a href="{% if admin_logged_in %}/admin/reviews{% else %}/admin/login{% endif %}" class="dashboard-summary-action">进入馆长入口</a>
+              <a href="{% if admin_logged_in %}/admin/reviews{% else %}/admin/login{% endif %}" class="dashboard-summary-action">进入管理员入口</a>
             </div>
 
             <div class="dashboard-health-panel">

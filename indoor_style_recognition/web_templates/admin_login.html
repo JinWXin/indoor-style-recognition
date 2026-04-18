@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>馆长入口</title>
+  <title>管理员入口</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
           <span class="app-brand-mark-subglyph">居</span>
         </span>
         <span class="app-brand-copy">
-          <strong>人居美学研究馆</strong>
+          <strong>人居美学研究</strong>
           <em>空间风格研究</em>
         </span>
       </a>
@@ -29,11 +29,11 @@
         <a href="/trend-analysis" class="app-nav-link">趋势分析</a>
         <a href="/upload-ranking" class="app-nav-link">上传排行</a>
         <a href="/suggestions" class="app-nav-link">意见反馈</a>
-        <a href="/admin/login" class="app-nav-link active">馆长入口</a>
+        <a href="/admin/login" class="app-nav-link active">管理员入口</a>
       </nav>
       <div class="app-sidebar-footer">
         <span class="app-footer-label">入口验证</span>
-        <strong>馆长验证</strong>
+        <strong>管理员验证</strong>
         <p>审核与训练入口仍然保留，当前只是把登录视觉整理成和整站一致的策展风格。</p>
       </div>
     </aside>
@@ -41,8 +41,8 @@
     <div class="app-main-shell">
       <header class="app-topbar">
         <div class="app-topbar-copy">
-          <span class="app-breadcrumb">人居美学 / 馆长入口</span>
-          <h2>馆长入口</h2>
+          <span class="app-breadcrumb">人居美学 / 管理员入口</span>
+          <h2>管理员入口</h2>
         </div>
       </header>
 
@@ -50,9 +50,9 @@
 
     <section class="hero">
       <div>
-        <p class="eyebrow">馆长验证</p>
-        <h1>馆长入口登录</h1>
-        <p class="lead">馆长入口只对管理员开放。登录成功后，才能查看待审核反馈、训练状态并执行通过或驳回操作。</p>
+        <p class="eyebrow">管理员验证</p>
+        <h1>管理员入口登录</h1>
+        <p class="lead">管理员入口只对管理员开放。登录成功后，才能查看待审核反馈、训练状态并执行通过或驳回操作。</p>
       </div>
     </section>
 
@@ -64,13 +64,13 @@
     {% endif %}
 
     <section class="card">
-      <h2>输入馆长密码</h2>
+      <h2>输入管理员密码</h2>
       <form action="/admin/login" method="post" class="stack">
         <label>
-          馆长密码
-          <input type="password" name="password" placeholder="请输入馆长密码" required>
+          管理员密码
+          <input type="password" name="password" placeholder="请输入管理员密码" required>
         </label>
-        <button type="submit">进入馆长入口</button>
+        <button type="submit">进入管理员入口</button>
       </form>
     </section>
       </main>

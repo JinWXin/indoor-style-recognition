@@ -18,7 +18,7 @@
           <span class="app-brand-mark-subglyph">居</span>
         </span>
         <span class="app-brand-copy">
-          <strong>人居美学研究馆</strong>
+          <strong>人居美学研究</strong>
           <em>空间风格研究</em>
         </span>
       </a>
@@ -30,9 +30,9 @@
         <a href="/upload-ranking" class="app-nav-link">上传排行</a>
         <a href="/suggestions" class="app-nav-link">意见反馈</a>
         {% if admin_logged_in %}
-        <a href="/admin/reviews" class="app-nav-link">馆长入口</a>
+        <a href="/admin/reviews" class="app-nav-link">管理员入口</a>
         {% else %}
-        <a href="/admin/login" class="app-nav-link">馆长入口</a>
+        <a href="/admin/login" class="app-nav-link">管理员入口</a>
         {% endif %}
       </nav>
       <div class="app-sidebar-footer">
@@ -73,11 +73,15 @@
         {% endif %}
         {% if training_snapshot.training_is_running %}
         <section class="notice training-notice">
+          {% if training_snapshot.training_status.mode in ['incremental', 'full'] %}
           当前正在进行{{ training_snapshot.training_mode_label }}：{{ training_snapshot.training_status.detail }}
+          {% else %}
+          当前训练进行中：{{ training_snapshot.training_status.detail }}
+          {% endif %}
           {% if training_snapshot.training_progress_percent is not none %}
           进度 {{ training_snapshot.training_progress_percent }}%
           {% endif %}
-          <a href="{% if admin_logged_in %}/admin/reviews{% else %}/admin/login{% endif %}" class="text-link">查看馆长入口</a>
+          <a href="{% if admin_logged_in %}/admin/reviews{% else %}/admin/login{% endif %}" class="text-link">查看管理员入口</a>
         </section>
         {% endif %}
         {% if predictor_is_stale %}
@@ -247,13 +251,17 @@
             <h2>近期趋势洞察</h2>
             <p class="muted-text">基于全系统识别数据的实时分析</p>
           </div>
-          <a href="/trend-analysis" class="text-link recognition-report-link">查看完整报告 →</a>
         </section>
 
         <section class="recognition-insights-strip">
           {% if trend_analysis_preview and trend_analysis_preview.preview_stats %}
             {% for item in trend_analysis_preview.preview_stats[:3] %}
             <article class="recognition-insight-card">
+              {% if item.preview_images %}
+              <div class="recognition-insight-image-wrap">
+                <img src="{{ item.preview_images[0].url }}" alt="{{ item.value }}" class="recognition-insight-image">
+              </div>
+              {% endif %}
               <div class="recognition-insight-top">
                 <span class="recognition-insight-pill{% if loop.index == 2 %} dark{% elif loop.index == 3 %} soft{% endif %}">
                   {{ ['趋势上升','设计提示','模型更新'][loop.index0] }}
@@ -269,29 +277,9 @@
             <article class="recognition-insight-card">
               <div class="recognition-insight-top">
                 <span class="recognition-insight-pill">趋势上升</span>
-                <strong>+12.5%</strong>
               </div>
-              <h3>近期趋势将在这里更新</h3>
-              <p>等系统积累识别、反馈和审核数据后，这里会自动长出 Stitch 风格洞察卡。</p>
-              <div class="recognition-insight-foot"></div>
-            </article>
-            <article class="recognition-insight-card">
-              <div class="recognition-insight-top">
-                <span class="recognition-insight-pill dark">设计提示</span>
-                <strong>•</strong>
-              </div>
-              <h3>光影分析模块升级</h3>
-              <p>未来这里可展示更细的设计建议和模型更新提示。</p>
-              <div class="recognition-insight-foot avatars"></div>
-            </article>
-            <article class="recognition-insight-card">
-              <div class="recognition-insight-top">
-                <span class="recognition-insight-pill soft">模型更新</span>
-                <strong>Today</strong>
-              </div>
-              <h3>多风格混合识别</h3>
-              <p>新版将更强调混搭空间的多标签识别与分享能力。</p>
-              <div class="recognition-insight-link">了解更多更新日志 ↗</div>
+              <h3>等待趋势样本生成</h3>
+              <p>当系统积累到足够的识别与反馈后，这里会显示真实的风格趋势图片卡。</p>
             </article>
           {% endif %}
         </section>
